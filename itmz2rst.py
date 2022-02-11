@@ -1,22 +1,14 @@
 #!/usr/bin/env python
 
 import argparse
-import logging
 import os
 import re
 import subprocess
 import sys
-import time
 from collections import defaultdict
-from html import unescape
 from urllib.error import URLError
 from urllib.parse import quote, urlparse, urlsplit, urlunsplit
 from urllib.request import urlretrieve
-
-# because logging.setLoggerClass has to be called before logging.getLogger
-from pelican.log import init
-from pelican.settings import read_settings
-from pelican.utils import SafeDatetime, slugify
 
 try:
     import xml.etree.ElementTree as ET
@@ -25,9 +17,6 @@ try:
 except ImportError:
     error = ('Missing dependency "ElementTree", "m2r2" and "zipfile" required to import iThoughts files.')
     sys.exit(error)
-
-
-logger = logging.getLogger(__name__)
 
 # #################################################################################################################################
 # UNWORKED FUNCTIONS
@@ -102,7 +91,7 @@ def download_attachments(output_path, urls):
             locations[url] = os.path.join(localpath, filename)
         except (URLError, OSError) as e:
             # Python 2.7 throws an IOError rather Than URLError
-            logger.warning("No file could be downloaded from %s\n%s", url, e)
+            print("[WARN] No file could be downloaded from %s\n%s", url, e)
     return locations
 
 def is_pandoc_needed(in_markup):
@@ -114,7 +103,7 @@ def get_pandoc_version():
     try:
         output = subprocess.check_output(cmd, universal_newlines=True)
     except (subprocess.CalledProcessError, OSError) as e:
-        logger.warning("Pandoc version unknown: %s", e)
+        print("[WARN] Pandoc version unknown: %s", e)
         return ()
 
     return tuple(int(i) for i in output.split()[1].split('.'))
@@ -189,6 +178,50 @@ def get_summary( root, uuid ):
     else:
         return ""
 
+# #################################################################################################################################
+# SLUGIFY
+# #################################################################################################################################
+
+def slugify(value, regex_subs=(), preserve_case=False, use_unicode=False):
+    """
+    Normalizes string, converts to lowercase, removes non-alpha characters,
+    and converts spaces to hyphens.
+
+    Took from Django sources.
+    """
+    
+    from markupsafe import Markup   
+    import unicodedata
+    import unidecode
+
+    def normalize_unicode(text):
+        # normalize text by compatibility composition
+        # see: https://en.wikipedia.org/wiki/Unicode_equivalence
+        return unicodedata.normalize('NFKC', text)
+
+    # strip tags from value
+    value = Markup(value).striptags()
+
+    # normalization
+    value = normalize_unicode(value)
+
+    if not use_unicode:
+        # ASCII-fy
+        value = unidecode.unidecode(value)
+
+    # perform regex substitutions
+    for src, dst in regex_subs:
+        value = re.sub(
+            normalize_unicode(src),
+            normalize_unicode(dst),
+            value,
+            flags=re.IGNORECASE)
+
+    if not preserve_case:
+        value = value.lower()
+
+    return value.strip()
+    
 # #################################################################################################################################
 # ITMZ2FIELDS
 # #################################################################################################################################
@@ -377,10 +410,10 @@ def get_out_filename(output_path, filename, ext, kind):
     return out_filename
 
 # #################################################################################################################################
-# FIELDS2PELICAN
+# FIELDS2RST
 # #################################################################################################################################
 
-def fields2pelican(
+def fields2rst(
         fields, output_path,
         out_markup="rst", dircat=False, strip_raw=False, disable_slugs=False,
         dirpage=False, filename_template=None, filter_author=None,
@@ -389,11 +422,14 @@ def fields2pelican(
     pandoc_version = get_pandoc_version()
     posts_require_pandoc = []
 
-    settings = read_settings()
-    slug_subs = settings['SLUG_REGEX_SUBSTITUTIONS']
+    slug_subs = [
+        (r'[^\w\s-]', ''),  # remove non-alphabetical/whitespace/'-' chars
+        (r'(?u)\A\s*', ''),  # strip leading whitespace
+        (r'(?u)\s*\Z', ''),  # strip trailing whitespace
+        (r'[-\s]+', '-'),  # reduce multiple whitespace or '-' to single '-'
+    ]
 
-    for (title, content, filename, date, author, categories, tags, status,
-            kind, summary, attachments, slug) in fields:
+    for (title, content, filename, date, author, categories, tags, status, kind, summary, attachments, slug) in fields:
         in_markup = 'rst'
         # if filter_author and filter_author != author:
         #     continue
@@ -478,7 +514,7 @@ def fields2pelican(
             fs.write(header + content)
 
     if posts_require_pandoc:
-        logger.error("Pandoc must be installed to import the following posts:"
+        print("[ERR] Pandoc must be installed to import the following posts:"
                      "\n  {}".format("\n  ".join(posts_require_pandoc)))
 
     #if wp_attach and attachments and None in attachments:
@@ -517,7 +553,7 @@ def main():
     #     attachments = get_attachment(args.input)
 
     # init logging
-    init()
-    fields2pelican( fields, args.output )
+    # init()
+    fields2rst( fields, args.output )
 
 main()
