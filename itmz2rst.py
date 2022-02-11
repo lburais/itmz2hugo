@@ -10,13 +10,13 @@ from urllib.error import URLError
 from urllib.parse import quote, urlparse, urlsplit, urlunsplit
 from urllib.request import urlretrieve
 
-try:
-    import xml.etree.ElementTree as ET
-    import zipfile
-    import m2r2
-except ImportError:
-    error = ('Missing dependency "ElementTree", "m2r2" and "zipfile" required to import iThoughts files.')
-    sys.exit(error)
+import xml.etree.ElementTree as ET
+import zipfile
+import unicodedata
+
+import m2r2
+from markupsafe import Markup   
+import unidecode
 
 # #################################################################################################################################
 # UNWORKED FUNCTIONS
@@ -60,35 +60,27 @@ def get_attachment(xml):
     return attachedposts
 
 
-def download_attachments(output_path, urls):
-    """Downloads WordPress attachments and returns a list of paths to
+def download_attachments(output_path, attachments):
+    """Downloads attachments and returns a list of paths to
     attachments that can be associated with a post (relative path to output
     directory). Files that fail to download, will not be added to posts"""
     locations = {}
-    for url in urls:
-        path = urlparse(url).path
-        # teardown path and rebuild to negate any errors with
-        # os.path.join and leading /'s
-        path = path.split('/')
-        filename = path.pop(-1)
-        localpath = ''
-        for item in path:
-            if sys.platform != 'win32' or ':' not in item:
-                localpath = os.path.join(localpath, item)
-        full_path = os.path.join(output_path, localpath)
+    for attachment in attachments:
+        file = attachment[0]
+        uuid =  attachment[1]
+        name =  attachment[2]
 
-        # Generate percent-encoded URL
-        scheme, netloc, path, query, fragment = urlsplit(url)
-        if scheme != 'file':
-            path = quote(path)
-            url = urlunsplit((scheme, netloc, path, query, fragment))
+        src_path = os.path.join('assets', uuid, name)
+        dst_path = os.path.join(output_path, 'attachments', slugify( os.path.basename(file).split(".")[0] + " " + uuid + " " + name))
 
-        if not os.path.exists(full_path):
-            os.makedirs(full_path)
-        print('downloading {}'.format(filename))
+        if not os.path.exists(os.path.join(output_path, 'attachments')):
+            os.makedirs(os.path.join(output_path, 'attachments'))
+
+        print('downloading {}'.format(src_path))
         try:
-            urlretrieve(url, os.path.join(full_path, filename))
-            locations[url] = os.path.join(localpath, filename)
+            ithoughts = zipfile.ZipFile( file, 'r')
+            data = ithoughts.read(src_path)
+            locations[uuid] = dst_path
         except (URLError, OSError) as e:
             # Python 2.7 throws an IOError rather Than URLError
             print("[WARN] No file could be downloaded from %s\n%s", url, e)
@@ -140,9 +132,6 @@ def display_tree( element, level=0 ):
                 print( "{}{}: {}".format( ' '*((level*4)+6), attrib, topic.attrib[attrib] ) )
         display_tree( topic, level+1 ) 
 
-def get_attachments( root, uuid ):
-    return []
-
 def set_parent( element, parent=None ):
     for topic in element: 
         topic.attrib['parent'] = parent
@@ -189,31 +178,29 @@ def slugify(value, regex_subs=(), preserve_case=False, use_unicode=False):
 
     Took from Django sources.
     """
-    
-    from markupsafe import Markup   
-    import unicodedata
-    import unidecode
 
-    def normalize_unicode(text):
-        # normalize text by compatibility composition
-        # see: https://en.wikipedia.org/wiki/Unicode_equivalence
-        return unicodedata.normalize('NFKC', text)
+    SLUG_SUBS = [
+        (r'[^\w\s-]', ''),  # remove non-alphabetical/whitespace/'-' chars
+        (r'(?u)\A\s*', ''),  # strip leading whitespace
+        (r'(?u)\s*\Z', ''),  # strip trailing whitespace
+        (r'[-\s]+', '-'),  # reduce multiple whitespace or '-' to single '-'
+    ]
 
     # strip tags from value
     value = Markup(value).striptags()
 
     # normalization
-    value = normalize_unicode(value)
+    value = unicodedata.normalize('NFKC', value)
 
     if not use_unicode:
         # ASCII-fy
         value = unidecode.unidecode(value)
 
     # perform regex substitutions
-    for src, dst in regex_subs:
+    for src, dst in SLUG_SUBS:
         value = re.sub(
-            normalize_unicode(src),
-            normalize_unicode(dst),
+            unicodedata.normalize('NFKC', src),
+            unicodedata.normalize('NFKC', dst),
             value,
             flags=re.IGNORECASE)
 
@@ -278,6 +265,11 @@ def itmz2fields(input):
         xmldata = ithoughts.read('mapdata.xml')
         root = ET.fromstring(xmldata)
 
+        # add name to uuid
+        for topic in root.iter('topic'):
+            topic.attrib['uuid'] = slugify( os.path.basename(file).split(".")[0] + " " + topic.attrib['uuid'] )
+
+        # identify parent
         set_parent(root)
 
         # display_tree(root)
@@ -296,14 +288,14 @@ def itmz2fields(input):
                 parents = root.findall( ".//*[@uuid='{}']".format(topic.attrib['parent']) )
                 content += "`{} <{}{}.html>`_ ".format( get_title(parents[0]), 
                                                         'pages/' if parents[0].attrib['kind'] == 'page' else '',
-                                                        get_topic_filename(file, topic.attrib['parent']))
+                                                        parents[0].attrib['uuid'])
 
             # add childs as links at the top of the content
             for child in root.findall( ".//*[@parent='{}']".format(topic.attrib['uuid']) ):
                 if child.tag == 'topic': 
                     content += "`{} <{}{}.html>`_ ".format( get_title(child), 
                                                             '../' if topic.attrib['kind'] == 'page' else '', 
-                                                            get_topic_filename(file, child.attrib['uuid']))
+                                                            child.attrib['uuid'])
 
             content += "\n\n"
 
@@ -334,7 +326,7 @@ def itmz2fields(input):
 
             summary = get_summary( root, topic.attrib['uuid'] )
 
-            filename = get_topic_filename( file, topic.attrib['uuid'] )
+            filename = topic.attrib['uuid']
 
             date = topic.attrib['modified']
             
@@ -347,7 +339,9 @@ def itmz2fields(input):
 
             kind = topic.attrib['kind']
             
-            attachments = get_attachments( root, topic.attrib['uuid'])
+            attachments = []
+            if 'att-id' in topic.attrib:
+                attachments.append( [file, topic.attrib['att-id'], topic.attrib['att-name']]  )
             
             slug = slugify(filename)
 
@@ -422,26 +416,16 @@ def fields2rst(
     pandoc_version = get_pandoc_version()
     posts_require_pandoc = []
 
-    slug_subs = [
-        (r'[^\w\s-]', ''),  # remove non-alphabetical/whitespace/'-' chars
-        (r'(?u)\A\s*', ''),  # strip leading whitespace
-        (r'(?u)\s*\Z', ''),  # strip trailing whitespace
-        (r'[-\s]+', '-'),  # reduce multiple whitespace or '-' to single '-'
-    ]
-
     for (title, content, filename, date, author, categories, tags, status, kind, summary, attachments, slug) in fields:
+
         in_markup = 'rst'
-        # if filter_author and filter_author != author:
-        #     continue
+
         if is_pandoc_needed(in_markup) and not pandoc_version:
             posts_require_pandoc.append(filename)
 
-        # slug = not disable_slugs and filename or None
-
-        if wp_attach and attachments:
+        if attachments:
             try:
-                urls = attachments[filename]
-                links = download_attachments(output_path, urls)
+                links = download_attachments(output_path, attachments)
             except KeyError:
                 links = None
         else:
