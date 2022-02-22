@@ -9,7 +9,10 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "args": [ "data", "--output", "sites/pelican/content" ],
+            "args": [ "/data", "--output", "sites/hugo/content" ],
+//            "args": [ "/data/Digital.itmz", "--output", "sites/hugo/content" ],
+//            "args": [ "data", "--output", "sites/hugo/content" ],
+//            "args": [ "data", "--output", "sites/pelican/content" ],
 //            "args": [ "/Users/lburais/Library/Mobile Documents/iCloud~com~toketaware~ios~ithoughts/Documents", "--output", "site/content" ],
             "console": "integratedTerminal"
         }
