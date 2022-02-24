@@ -56,7 +56,6 @@ class ITMZ:
         self._source = source
 
         self._set_site()
-        self.process_files()
 
     # #############################################################################################################################
     # _set_site
@@ -66,7 +65,6 @@ class ITMZ:
         mybutton_shortcode = '''
             {{- $_hugo_config := `{ "version": 1 }` }}
             {{- $icon := .Get "icon" }}
-            {{- $iconposition := .Get "icon-position" }}
             {{- $target := .Get "target" }}
             <a{{ with .Get "href"}} href="{{ . }}"{{ end }}
             {{- if ($target) }}
@@ -74,13 +72,7 @@ class ITMZ:
             {{- end }}
              class="btn btn-default">
             {{- if ($icon) }}
-                {{- if or (not ($iconposition)) (eq $iconposition "left") }}
             <i class="{{ $icon }}"></i>
-                {{- end }}
-            {{- end }}
-            {{ .Inner }}
-            {{- if and ($icon) (eq $iconposition "right")}}
-            <i class="{{$icon}}"></i>
             {{- end }}
             </a>
         '''
@@ -176,9 +168,9 @@ class ITMZ:
 
         if link:
             title = fields.groups()[0] + fields.groups()[1] + fields.groups()[3]
-            return { 'title': self._normalize(title), 'link': link, 'content': content}
+            return { 'title': self._normalize(title), 'link': link, 'content': content, 'raw': title}
         else:
-            return { 'title': self._normalize(title), 'content': content}
+            return { 'title': self._normalize(title), 'content': content, 'raw': title}
         
     # #############################################################################################################################
     # _set_parent
@@ -198,7 +190,7 @@ class ITMZ:
                     element.attrib['_directory'] = os.path.join( parent.attrib['_directory'], element.attrib['uuid'] )
 
             if not '_directory' in element.attrib and element.tag == 'topic':
-                paths = self._get_content(element)['title'].split(">>")
+                paths = self._get_content(element)['raw'].split(">>")
                 for idx, path in enumerate(paths):
                     paths[idx] = self._normalize( path, slug= True )
                     paths[idx] = re.sub( r'(?u)\A-*', '', paths[idx] )
@@ -239,8 +231,12 @@ class ITMZ:
                 if content['content']: element.attrib['_content'] = content['content']
 
                 # _summary
+                if 'note' in element.attrib:
+                    element.attrib['_summary'] = element.attrib['note']
+
+                # _description
                 # if 'note' in element.attrib:
-                #     element.attrib['_summary'] = element.attrib['note']
+                #     element.attrib['_description'] = element.attrib['note']
 
                 # _filename
                 if '_directory' in element.attrib:
@@ -330,11 +326,13 @@ class ITMZ:
 
         output += 'title: "{}"\n'.format(topic.attrib['_title'])
         output += "date: {}\n".format(topic.attrib['created'])
+        output += "menu: {}\n".format(topic.attrib['_title'])
         if 'modified' in topic.attrib: output += 'lastmod: {}\n'.format(topic.attrib['modified'])
         if '_images' in topic.attrib: output += 'images: "{}"\n'.format(topic.attrib['_images'])
         if '_keywords' in topic.attrib: output += 'keywords: "{}"\n'.format(topic.attrib['_summary'])
         if 'uuid' in topic.attrib: output += 'slug: %s\n' % topic.attrib['uuid']
         if '_summary' in topic.attrib: output += 'summary: "{}"\n'.format(topic.attrib['_summary'])
+        if '_description' in topic.attrib: output += 'description: "{}"\n'.format(topic.attrib['_description'])
 
         output += '---\n'
 
@@ -365,6 +363,10 @@ class ITMZ:
                 output += hyperlink + ' '
             output += '\n\n'
 
+        # children shortcode from relearn
+        output += '{{% children depth="10" %}}\n'
+
+        # content
         if '_content' in topic.attrib: 
             output += topic.attrib['_content']
             output += "\n"
@@ -380,21 +382,23 @@ class ITMZ:
                 if key == 'task-progress' and int(topic.attrib[key]) > 100: continue
                 if key == 'task-progress': topic.attrib[key] += '%'
                 if key == 'task-effort' and topic.attrib[key][0] == '-': continue
-                task_header += "{} |".format( task[key] )
-                task_sep += "--- |"
-                task_values += "{} |".format( topic.attrib[key] )
+                task_header += " {} |".format( task[key] )
+                task_sep += " --- |"
+                task_values += " {} |".format( topic.attrib[key] )
 
         if task_header != '':
-            output += "| " + task_header + "\n"
-            output += "| " + task_sep + "\n"
-            output += "| " + task_values + "\n"
+            output += "|" + task_header + "\n"
+            output += "|" + task_sep + "\n"
+            output += "|" + task_values + "\n"
             output += "\n"
 
         # attachments
         if '_attachment' in topic.attrib: 
-            output += "![{}]({} {})".format( topic.attrib['_attachment']['alt'], 
-                                             topic.attrib['_attachment']['src'], 
-                                             topic.attrib['_attachment']['title'])
+            output += "![{}]({})\n".format( topic.attrib['_attachment']['title'], 
+                                             topic.attrib['_attachment']['src'])
+            # output += "![{}]({} {})\n".format( topic.attrib['_attachment']['alt'], 
+            #                                  topic.attrib['_attachment']['src'], 
+            #                                  topic.attrib['_attachment']['title'])
 
         return output
 
@@ -424,22 +428,21 @@ class ITMZ:
             # write the output file
             if '_header' in topic.attrib:
                 out_file = os.path.join( self._site, topic.attrib['_filename'] )
-                print('  > ' + out_file)
-                print("    - title:   {}".format( topic.attrib['_title'] ))
-                if 'created' in topic.attrib: print("    - created: {}".format( topic.attrib['created'] ))
-                if 'modified' in topic.attrib: 
-                    topic_time = datetime.strptime(topic.attrib['modified'], "%Y-%m-%dT%H:%M:%S")
-                    print("    - updated: {}".format( topic_time.strftime("%Y-%m-%dT%H:%M:%S") ))
-                else:
-                    topic_time = datetime.strptime(topic.attrib['created'], "%Y-%m-%dT%H:%M:%S")
-                    print("    - created: {}".format( topic_time.strftime("%Y-%m-%dT%H:%M:%S") ))
+
+                if 'modified' in topic.attrib: topic_time = datetime.strptime(topic.attrib['modified'], "%Y-%m-%dT%H:%M:%S")
+                else: topic_time = datetime.strptime(topic.attrib['created'], "%Y-%m-%dT%H:%M:%S")
 
                 if os.path.isfile(out_file):
                     out_time = datetime.fromtimestamp(os.path.getmtime(out_file))
                     print("    - file:    {}".format( out_time.strftime("%Y-%m-%dT%H:%M:%S") ))
                     if not force or topic_time > out_time:
-                        print("    - skipped" )
                         continue
+
+                print('  > ' + out_file)
+                print("    - title:   {}".format( topic.attrib['_title'] ))
+                if 'created' in topic.attrib: print("    - created: {}".format( topic.attrib['created'] ))
+                if 'modified' in topic.attrib: print("    - updated: {}".format( topic_time.strftime("%Y-%m-%dT%H:%M:%S") ))
+                else: print("    - created: {}".format( topic_time.strftime("%Y-%m-%dT%H:%M:%S") ))
 
                 out_dir = os.path.dirname(out_file)
                 if not os.path.isdir(out_dir):
@@ -509,6 +512,7 @@ def main():
             exit(error)
            
     itmz = ITMZ( source=args.input, site=args.output )
+    itmz.process_files( False )
 
     print( "http://docker.local:8888")
 
