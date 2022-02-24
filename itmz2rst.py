@@ -9,11 +9,6 @@ from datetime import datetime
 
 import xml.etree.ElementTree as ET
 import zipfile
-import unicodedata
-from docutils.utils import column_width
-
-from markupsafe import Markup, escape   
-import unidecode
 
     # #################################################################################################################################
     # ITMZ
@@ -49,26 +44,54 @@ import unidecode
 
 class ITMZ:
 
-    _file = None
-    _filename = None
-    _elements = None
+    _site = None
+    _source = None
 
     # #############################################################################################################################
     # __init__
     # #############################################################################################################################
 
-    def __init__(self, site, file):
+    def __init__(self, source, site):
         self._site = site
-        self._file = file
-        self._filename = os.path.basename(file).split(".")[0]
+        self._source = source
 
-        ithoughts = zipfile.ZipFile( file, 'r')
-        xmldata = ithoughts.read('mapdata.xml')
-        self._elements = ET.fromstring(xmldata)
+        self._set_site()
+        self.process_files()
 
-        self._set_parent( self._elements )
-        self._set_topics()
-        self._set_relationships()
+    # #############################################################################################################################
+    # _set_site
+    # #############################################################################################################################
+
+    def _set_site(self):
+        mybutton_shortcode = '''
+            {{- $_hugo_config := `{ "version": 1 }` }}
+            {{- $icon := .Get "icon" }}
+            {{- $iconposition := .Get "icon-position" }}
+            {{- $target := .Get "target" }}
+            <a{{ with .Get "href"}} href="{{ . }}"{{ end }}
+            {{- if ($target) }}
+             target="{{$target}}"
+            {{- end }}
+             class="btn btn-default">
+            {{- if ($icon) }}
+                {{- if or (not ($iconposition)) (eq $iconposition "left") }}
+            <i class="{{ $icon }}"></i>
+                {{- end }}
+            {{- end }}
+            {{ .Inner }}
+            {{- if and ($icon) (eq $iconposition "right")}}
+            <i class="{{$icon}}"></i>
+            {{- end }}
+            </a>
+        '''
+        out_file = os.path.join( self._site, "..", "layouts", "shortcodes", "mybutton.html")
+        out_dir = os.path.dirname(out_file)
+        if not os.path.isdir(out_dir):
+            os.makedirs(out_dir)
+
+        with open(out_file, 'w', encoding='utf-8') as fs:
+            fs.write(mybutton_shortcode) 
+            fs.close() 
 
     # #############################################################################################################################
     # _normalize
@@ -104,7 +127,25 @@ class ITMZ:
 
 
         return value
-    
+
+    # #############################################################################################################################
+    # _print_elements
+    # #############################################################################################################################
+
+    def _print_elements( self, elements ):
+        IDENT = '    '
+
+        print( "ELEMENTS\n========\n\n")
+        for element in elements.iter():
+            print( "{}> {}{}".format(
+                                IDENT * element.attrib['_level'] if '_level' in element.attrib else '', 
+                                element.tag, 
+                                " - " + element.attrib['uuid'] if 'uuid' in element.attrib else '' ))
+            if '_title' in element.attrib:
+                print( "{}{}title: {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_title'] ))
+            if '_filename' in element.attrib:
+                print( "{}{}file:  {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_filename'] ))
+        
     # #############################################################################################################################
     # _get_content
     # #############################################################################################################################
@@ -115,7 +156,8 @@ class ITMZ:
             else: title = element.attrib['text'].splitlines()[0]
             content = ''.join(element.attrib['text'].splitlines(keepends=True)[1:])
         else:
-            title ="{}".format(element.attrib['uuid'])
+            if 'uuid' in element.attrib: title ="{}".format(element.attrib['uuid'])
+            else: title = element.tag
             content = None
         link = None
 
@@ -134,43 +176,54 @@ class ITMZ:
 
         if link:
             title = fields.groups()[0] + fields.groups()[1] + fields.groups()[3]
-            return { 'title': title, 'link': link, 'content': content}
+            return { 'title': self._normalize(title), 'link': link, 'content': content}
         else:
-            return { 'title': title, 'content': content}
+            return { 'title': self._normalize(title), 'content': content}
         
     # #############################################################################################################################
     # _set_parent
     # #############################################################################################################################
 
-    def _set_parent( self, elements, parent=None, level=0 ):
+    def _set_parent( self, elements, parent=None ):
         for element in elements: 
+            if 'floating' in element.attrib and element.attrib['floating'] == '1':
+                parent = None
+
             if parent: 
+                if '_level' in parent.attrib: element.attrib['_level'] = parent.attrib['_level'] + 1
+
                 if 'uuid' in parent.attrib: 
                     element.attrib['_parent'] = parent.attrib['uuid']
                 if '_directory' in parent.attrib and 'uuid' in element.attrib: 
                     element.attrib['_directory'] = os.path.join( parent.attrib['_directory'], element.attrib['uuid'] )
-                else:
-                    element.attrib['_directory'] = self._normalize( self._get_content(element)['title'], slug= True )
 
-            # print( "{}{}: {} [{}] [{}]".format( '  ' * level, element.tag, element.attrib['uuid'] if 'uuid' in element.attrib else '', element.attrib['_parent'] if '_parent' in element.attrib else '', element.attrib['_directory'] if '_directory' in element.attrib else '' ))
+            if not '_directory' in element.attrib and element.tag == 'topic':
+                paths = self._get_content(element)['title'].split(">>")
+                for idx, path in enumerate(paths):
+                    paths[idx] = self._normalize( path, slug= True )
+                    paths[idx] = re.sub( r'(?u)\A-*', '', paths[idx] )
+                    paths[idx] = re.sub( r'(?u)-*\Z', '', paths[idx] )
+                element.attrib['_directory'] = os.path.sep.join( paths )
 
-            self._set_parent( element, element, level+1 )
+            if not '_level' in element.attrib: element.attrib['_level'] = 0
+
+            self._set_parent( element, element )
 
     # #############################################################################################################################
     # _get_parent
     # #############################################################################################################################
 
-    def _get_parent( self, topic ):
+    def _get_parent( self, elements, topic ):
         parent = None
-        if _parent in topic.attrib: parent = self._elements.find( ".//*[@uuid='{}']".format(topic.attrib['_parent']) )
+        if _parent in topic.attrib: parent = elements.find( ".//*[@uuid='{}']".format(topic.attrib['_parent']) )
         return parent
 
     # #############################################################################################################################
     # _set_topics
     # #############################################################################################################################
 
-    def _set_topics( self ):
-        for element in self._elements.iter(): 
+    def _set_topics( self, file, elements ):
+        for element in elements.iter():
 
             if element.tag == 'topic': 
 
@@ -198,7 +251,7 @@ class ITMZ:
                 #     element.tag = 'comment'
 
                 # _attachment
-                self._set_attachment( element )
+                self._set_attachment( file, element )
 
                 # cleanup
                 to_remove = ['position', 'color']
@@ -209,31 +262,35 @@ class ITMZ:
     # _set_relationships
     # #################################################################################################################################
 
-    def _set_relationships( self ):
-        for element in self._elements.iter('topic'):
+    def _set_relationships( self, elements ):
+        for element in elements.iter('topic'):
 
             element.attrib['_relationships'] = []
 
+            if '_titlelink' in element.attrib:
+                link = { 'title': element.attrib['_titlelink']['title'], 'ref': element.attrib['_titlelink']['ref'], 'type': 'external' }
+                element.attrib['_relationships'].append( link )
+
             if '_parent' in element.attrib:
-                parents = self._elements.findall( ".//*[@uuid='{}']".format(element.attrib['_parent']) )
+                parents = elements.findall( ".//*[@uuid='{}']".format(element.attrib['_parent']) )
                 for parent in parents:
-                    link = { 'title': parent.attrib['_title'], 'ref': os.path.join( "..", "_index.md") }
+                    link = { 'title': parent.attrib['_title'], 'ref': os.path.join( "..", ""), 'type': 'parent' }
                     element.attrib['_relationships'].append( link )
 
             if 'uuid' in element.attrib:
-                for child in self._elements.findall( ".//*[@_parent='{}']".format(element.attrib['uuid']) ) :
+                for child in elements.findall( ".//*[@_parent='{}']".format(element.attrib['uuid']) ) :
                     if child.tag == 'topic' and '_directory' in child.attrib: 
-                        link = { 'title': child.attrib['_title'], 'ref': os.path.join( os.path.sep, child.attrib['_directory'] ) }
+                        link = { 'title': child.attrib['_title'], 'ref': os.path.join( os.path.sep, child.attrib['_directory'] ), 'type': 'child' }
                         element.attrib['_relationships'].append( link )
 
-                for relation in self._elements.findall( ".//*[@end1-uuid='{}']".format(element.attrib['uuid']) ) :
-                    rel = self._elements.find( ".//*[@uuid='{}']".format(relation.attrib['end2-uuid']) )
-                    link = { 'title': rel.attrib['_title'], 'ref': os.path.join( os.path.sep, rel.attrib['_directory'], "_index.md") }
+                for relation in elements.findall( ".//*[@end1-uuid='{}']".format(element.attrib['uuid']) ) :
+                    rel = elements.find( ".//*[@uuid='{}']".format(relation.attrib['end2-uuid']) )
+                    link = { 'title': rel.attrib['_title'], 'ref': os.path.join( os.path.sep, rel.attrib['_directory'], ""), 'type': 'peer' }
                     element.attrib['_relationships'].append( link )
 
-                for relation in self._elements.findall( ".//*[@end2-uuid='{}']".format(element.attrib['uuid']) ) :
-                    rel = self._elements.find( ".//*[@uuid='{}']".format(relation.attrib['end1-uuid']) )
-                    link = { 'title': rel.attrib['_title'], 'ref': os.path.join( os.path.sep, rel.attrib['_directory'], "_index.md") }
+                for relation in elements.findall( ".//*[@end2-uuid='{}']".format(element.attrib['uuid']) ) :
+                    rel = elements.find( ".//*[@uuid='{}']".format(relation.attrib['end1-uuid']) )
+                    link = { 'title': rel.attrib['_title'], 'ref': os.path.join( os.path.sep, rel.attrib['_directory'], ""), 'type': 'peer' }
                     element.attrib['_relationships'].append( link )
 
             if len(element.attrib['_relationships']) == 0: element.attrib.pop('_relationships')
@@ -242,10 +299,10 @@ class ITMZ:
     # _set_attachment
     # #############################################################################################################################
 
-    def _set_attachment( self, topic ):
+    def _set_attachment( self, file, topic ):
         if 'att-id' in topic.attrib:
             try:
-                ithoughts = zipfile.ZipFile( self._file, 'r')
+                ithoughts = zipfile.ZipFile( file, 'r')
                 filename = os.path.join( "assets", topic.attrib['att-id'], topic.attrib['att-name'] )
                 data = ithoughts.read(filename)
 
@@ -257,9 +314,10 @@ class ITMZ:
                 if not os.path.isdir(out_dir): os.makedirs(out_dir)
                 with open(out_file, 'wb') as fs: fs.write(data) 
 
-                topic.attrib['_attachment'] = '![' + topic.attrib['att-id'] + ']'
-                topic.attrib['_attachment'] += '(' + topic.attrib['att-id'] + out_ext + ' "' 
-                topic.attrib['_attachment'] += topic.attrib['att-name'] +'")'
+                src = os.path.join( os.path.sep, topic.attrib['_directory'], topic.attrib['att-id'] + out_ext)
+                attachment = { 'alt': topic.attrib['att-id'], 'title': topic.attrib['att-name'],'src': src}
+
+                topic.attrib['_attachment'] = attachment
             except:
                 pass
 
@@ -290,63 +348,74 @@ class ITMZ:
 
         output = ''
 
-        if '_titlelink' in topic.attrib:
-            hyperlink = '{{% button href="' + topic.attrib['_titlelink']['ref'] + '" icon="fa-brands fa-wordpress" %}}'
-            hyperlink += topic.attrib['_titlelink']['title'] + '{{% /button %}}'
-            output += hyperlink + ' '
-
         if '_relationships' in topic.attrib:
             for relation in topic.attrib['_relationships']:
-                # hyperlink = '[' + relation['title'] + ']'
-                # hyperlink += '({{< ref "' + relation['ref'] + '" >}})'
-                hyperlink = '{{% button href="' + relation['ref'].lower() + '" %}}'
-                hyperlink += relation['title'] + '{{% /button %}}'
+                if relation['type'] == 'external': icon = ' icon="fa-solid fa-link"'
+                elif relation['type'] == 'parent': icon = ' icon="fa-solid fa-circle-up"'
+                elif relation['type'] == 'child': icon = ' icon="fa-solid fa-circle-down"'
+                elif relation['type'] == 'peer': icon = ' icon="fa-solid fa-circle-right"'
+                elif relation['type'] == 'link': icon = ' icon="fa-solid fa-circle-right"'
+                else: icon = ''
+                hyperlink = '{{% mybutton href="' + relation['ref'].lower() + '"'
+                hyperlink += icon
+                hyperlink += ' target="_blank"' if relation['type'] == 'external' else ''
+                hyperlink += ' %}}'
+                hyperlink += relation['title']
+                hyperlink += '{{% /mybutton %}}'
                 output += hyperlink + ' '
             output += '\n\n'
-
-        # add attrib for debug purpose
-        # output += "attrib: {}".format(topic.attrib) + "\n\n"
 
         if '_content' in topic.attrib: 
             output += topic.attrib['_content']
             output += "\n"
 
         # task
-        # task_header = ''
-        # task_values = ''
-        # task = { 'task-start': 'Start', 'task-due': 'Due', 'cost': 'Cost', 'task-effort': 'Effort', 
-        #         'task-priority': 'Priority', 'task-progress': 'Progress', 'resources': 'Resource(s)' }
-        # for key in task:
-        #     if key in topic.attrib:
-        #         if key == 'task-progress' and int(topic.attrib[key]) > 100: continue
-        #         if key == 'task-progress': topic.attrib[key] += '%'
-        #         if key == 'task-effort' and topic.attrib[key][0] == '-': continue
-        #         task_header += "   {} - {}\n".format( '*' if task_header == '' else ' ', task[key] )
-        #         task_values += "   {} - {}\n".format( '*' if task_values == '' else ' ', topic.attrib[key] )
+        task_header = ''
+        task_sep = ''
+        task_values = ''
+        task = { 'task-start': 'Start', 'task-due': 'Due', 'cost': 'Cost', 'task-effort': 'Effort', 
+                'task-priority': 'Priority', 'task-progress': 'Progress', 'resources': 'Resource(s)' }
+        for key in task:
+            if key in topic.attrib:
+                if key == 'task-progress' and int(topic.attrib[key]) > 100: continue
+                if key == 'task-progress': topic.attrib[key] += '%'
+                if key == 'task-effort' and topic.attrib[key][0] == '-': continue
+                task_header += "{} |".format( task[key] )
+                task_sep += "--- |"
+                task_values += "{} |".format( topic.attrib[key] )
 
-        # if task_header != '':
-        #     output += ".. list-table:: Task\n"
-        #     output += "   :widths: auto\n"
-        #     output += "   :header-rows: 1\n"
-        #     output += "\n"
-        #     output += task_header
-        #     output += task_values
-        #     output += "\n"
+        if task_header != '':
+            output += "| " + task_header + "\n"
+            output += "| " + task_sep + "\n"
+            output += "| " + task_values + "\n"
+            output += "\n"
 
         # attachments
         if '_attachment' in topic.attrib: 
-            output += topic.attrib['_attachment'] + '\n'
+            output += "![{}]({} {})".format( topic.attrib['_attachment']['alt'], 
+                                             topic.attrib['_attachment']['src'], 
+                                             topic.attrib['_attachment']['title'])
 
         return output
 
     # #############################################################################################################################
-    # process_file
+    # _process_file
     # #############################################################################################################################
 
-    def process_file( self, force=False ):
-        for topic in self._elements.iter('topic'):
+    def _process_file( self, file, force=False ):
+
+        ithoughts = zipfile.ZipFile( file, 'r')
+        xmldata = ithoughts.read('mapdata.xml')
+        elements = ET.fromstring(xmldata)
+
+        self._set_parent( elements )
+        self._set_topics( file, elements )
+        self._set_relationships( elements )
+
+        self._print_elements(elements)
+        
+        for topic in elements.iter('topic'):
             # let's go !
-            # print('  creating {}...'.format(topic.attrib['uuid']))
 
             topic.attrib['_header'] = self._get_header( topic )
 
@@ -385,33 +454,26 @@ class ITMZ:
 
         return True
 
-# #################################################################################################################################
-# process_files
-# #################################################################################################################################
+    # #################################################################################################################################
+    # process_files
+    # #################################################################################################################################
 
-def process_files(directory, site):
+    def process_files(self, force=False):
 
-    filenames = []
-    if os.path.isdir(directory):
-        for top, dirs, files in os.walk(directory):
-            for name in files:
-                if os.path.splitext(name)[1] == '.itmz': filenames.append(os.path.join(top, name))
-    else:
-        filenames.append(directory)
-
-    cnt = 0
-    for file in filenames:
-        if not os.path.exists(file):
-            print( "{} does not exist".format(file))
-            continue
+        filenames = []
+        if os.path.isdir(self._source):
+            for top, dirs, files in os.walk(self._source):
+                for name in files:
+                    if os.path.splitext(name)[1] == '.itmz': filenames.append(os.path.join(top, name))
         else:
-            itmz = ITMZ(site, file)
+            filenames.append(self._source)
 
-            ret = itmz.process_file( force=False )
-
-            time.sleep(20)
-            # if ret: cnt +=1
-            # if cnt >= 1: return
+        for file in filenames:
+            if not os.path.exists(file):
+                print( "{} does not exist".format(file))
+                continue
+            else:
+                self._process_file( file, force=True )
 
 # #################################################################################################################################
 # main
@@ -445,8 +507,8 @@ def main():
         except OSError:
             error = 'Unable to create the output folder: ' + args.output
             exit(error)
-
-    process_files( args.input, args.output )
+           
+    itmz = ITMZ( source=args.input, site=args.output )
 
     print( "http://docker.local:8888")
 
