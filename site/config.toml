@@ -1,0 +1,10 @@
+baseURL = 'http://docker.local'
+languageCode = 'en-us'
+title = 'My Hugo Site'
+theme = "relearn"
+themesDir = "../themes"
+
+[params]
+themeVariant = "relearn-dark"
+disableToc = false
+
