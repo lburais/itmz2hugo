@@ -65,6 +65,7 @@ class ITMZ:
         mybutton_shortcode = '''
             {{- $_hugo_config := `{ "version": 1 }` }}
             {{- $icon := .Get "icon" }}
+            {{- $iconposition := .Get "icon-position" }}
             {{- $target := .Get "target" }}
             <a{{ with .Get "href"}} href="{{ . }}"{{ end }}
             {{- if ($target) }}
@@ -72,10 +73,17 @@ class ITMZ:
             {{- end }}
              class="btn btn-default">
             {{- if ($icon) }}
+                {{- if or (not ($iconposition)) (eq $iconposition "left") }}
             <i class="{{ $icon }}"></i>
+                {{- end }}
+            {{- end }}
+            {{ .Inner }}
+            {{- if and ($icon) (eq $iconposition "right")}}
+            <i class="{{$icon}}"></i>
             {{- end }}
             </a>
         '''
+
         out_file = os.path.join( self._site, "..", "layouts", "shortcodes", "mybutton.html")
         out_dir = os.path.dirname(out_file)
         if not os.path.isdir(out_dir):
