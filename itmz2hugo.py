@@ -334,7 +334,7 @@ class ITMZ:
 
         output += 'title: "{}"\n'.format(topic.attrib['_title'])
         output += "date: {}\n".format(topic.attrib['created'])
-        output += "menu: {}\n".format(topic.attrib['_title'])
+        output += 'menu: "{}"\n'.format(topic.attrib['_title'])
         if 'modified' in topic.attrib: output += 'lastmod: {}\n'.format(topic.attrib['modified'])
         if '_images' in topic.attrib: output += 'images: "{}"\n'.format(topic.attrib['_images'])
         if '_keywords' in topic.attrib: output += 'keywords: "{}"\n'.format(topic.attrib['_summary'])
@@ -347,10 +347,10 @@ class ITMZ:
         return output
 
     # #############################################################################################################################
-    # _get_body
+    # _get_full_body
     # #############################################################################################################################
 
-    def _get_body( self, topic ):
+    def _get_full_body( self, elements, topic, level ):
 
         output = ''
 
@@ -371,8 +371,35 @@ class ITMZ:
                 output += hyperlink + ' '
             output += '\n\n'
 
-        # children shortcode from relearn
-        output += '{{% children depth="10" %}}\n'
+        # write main title if not level 0
+        if level > 0: 
+            output += "{} {}\n".format('#' * (level+1), topic.attrib['_title'])
+        else:
+            # children shortcode from relearn
+            output += '{{% children depth="10" %}}\n'
+
+
+        # shift tittles in content
+        body = self._get_body( topic )
+        body = re.sub( r'^#', '#' * (level+1), body, flags = re.MULTILINE )
+
+        output += body
+
+        # add childs
+        if 'uuid' in topic.attrib:
+            for child in elements.findall( ".//*[@_parent='{}']".format(topic.attrib['uuid']) ) :
+                if child.tag == 'topic':
+                    output += self._get_full_body( elements, child, level+1 )
+
+        return output
+
+    # #############################################################################################################################
+    # _get_body
+    # #############################################################################################################################
+
+    def _get_body( self, topic ):
+
+        output = ''
 
         # content
         if '_content' in topic.attrib: 
@@ -387,8 +414,10 @@ class ITMZ:
                 'task-priority': 'Priority', 'task-progress': 'Progress', 'resources': 'Resource(s)' }
         for key in task:
             if key in topic.attrib:
-                if key == 'task-progress' and int(topic.attrib[key]) > 100: continue
-                if key == 'task-progress': topic.attrib[key] += '%'
+                if key == 'task-progress':
+                    if topic.attrib[key][-1] != "%": 
+                        if int(topic.attrib[key]) > 100: continue
+                        topic.attrib[key] += '%'
                 if key == 'task-effort' and topic.attrib[key][0] == '-': continue
                 task_header += " {} |".format( task[key] )
                 task_sep += " --- |"
@@ -431,7 +460,7 @@ class ITMZ:
 
             topic.attrib['_header'] = self._get_header( topic )
 
-            topic.attrib['_body'] = self._get_body( topic )
+            topic.attrib['_body'] = self._get_full_body( elements, topic, 0 )
 
             # write the output file
             if '_header' in topic.attrib:
