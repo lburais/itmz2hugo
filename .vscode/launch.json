@@ -10,8 +10,8 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-//            "args": [ "/data", "--output", "site/content" ],
-            "args": [ "/data/Test.itmz", "--output", "site/content" ],
+//            "args": [ "/data", "--output", "site/content", "--page-only" ],
+            "args": [ "/data/Test.itmz", "--output", "site/content", "--force", "--page-only" ],
             "console": "integratedTerminal"
         }
     ]

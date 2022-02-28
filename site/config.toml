@@ -1,10 +1,5 @@
-baseURL = 'http://docker.local'
+baseURL = 'http://pharaoh.local'
 languageCode = 'en-us'
-title = 'My Hugo Site'
+title = 'MindMap'
 theme = "relearn"
 themesDir = "../themes"
-
-[params]
-themeVariant = "relearn-dark"
-disableToc = false
-
