@@ -1,5 +1,0 @@
-baseURL = 'http://pharaoh.local'
-languageCode = 'en-us'
-title = 'MindMap'
-theme = "relearn"
-themesDir = "../themes"
