@@ -11,78 +11,137 @@ import markdown
 import xml.etree.ElementTree as ET
 import zipfile
 
-    # #################################################################################################################################
-    # ITMZ
-    # #################################################################################################################################
+# #############################################################################################################################
+# Structure
+# #############################################################################################################################
+# iThoughts structure
+# -------------------
+#   [src]
+#   ├── [file1].itmz
+#   |   ├── mapdata.xml
+#   |   |   ├── tag
+#   |   |   ├── iIhoughts attribs
+#   |   |   |   ├── modified
+#   |   |   |   └── author
+#   |   |   ├── topic attribs
+#   |   |   |   ├── uuid
+#   |   |   |   ├── text
+#   |   |   |   ├── link
+#   |   |   |   ├── created
+#   |   |   |   ├── modified
+#   |   |   |   ├── note
+#   |   |   |   ├── callout
+#   |   |   |   ├── floating
+#   |   |   |   ├── att-name
+#   |   |   |   ├── att-id
+#   |   |   |   ├── task-start
+#   |   |   |   ├── task-due
+#   |   |   |   ├── cost
+#   |   |   |   ├── cost-type
+#   |   |   |   ├── task-effort
+#   |   |   |   ├── task-priority
+#   |   |   |   ├── task-progress
+#   |   |   |   ├── resources
+#   |   |   |   ├── icon1
+#   |   |   |   ├── icon2
+#   |   |   |   ├── position
+#   |   |   |   ├── color
+#   |   |   |   ├── summary1
+#   |   |   |   └── summary2
+#   |   |   ├── relationship
+#   |   |   |   ├── end1-uui
+#   |   |   |   └── end2-uui
+#   |   |   └── group
+#   |   |       ├── member1
+#   |   |       └── member2
+#   |   └── assets
+#   |       ├── [uuid1]
+#   |       |   ├── [attachment1]
+#   |       |   └── [attachment1]
+#   |       └── [uuid2]
+#   |           └── [attachment3]
+#   ├── [file2].itmz
+#   |   ├── mapdata.xml
+#   |   └── assets
+#   |       └── [uuid3]
+#   |           └── [attachment4]
+#   └── [folder]
+#       ├── [file3].itmz
+#       |   ├── mapdata.xml
+#       |   └── assets
+#       |       └── [uuid4]
+#       |           └── [attachment5]
+#       └── [folder]
+#           └── [file4].itmz
+#
+# Hugo structure
+# --------------
+#   content
+#   ├── _index.html
+#   ├── [filename1] == page1 bundle for itmz1
+#   |   ├── _index.html == filename1 page
+#   |   |       external --> url
+#   |   |       internal in --> {{< ref "#[uuid]" >}}
+#   |   |       internal out --> {{< ref "/[filename2]/_index#[uuid]" >}}
+#   |   ├── attachments
+#   |   |   └── [attachment1] 
+#   |   |           --> {{< ref "/[filename1]/attachments/[attachment1]" >}}
+#   |   |           --> {{< ref "attachments/[attachment1]" >}}
+#   |   └── [filename2] --> page2 bundle for itmz2
+#   |       ├── _index.html == filename2 page
+#   |       └── attachments
+#   |           └── [attachment2] 
+#   |                   --> {{< ref "/[filename1]/[filename2]/attachments/[attachment2]" >}}
+#   |                   --> {{< ref "attachments/[attachment2]" >}}
+#   ├── layouts
+#   |   └── shortcodes
+#   |       └── [shortcodes].html
+#   └── config.toml
+#
+# Pelican structure
+# -----------------
+#   content
+#   ├── pages
+#   |   ├── [filename1].html
+#   |   |       external --> url
+#   |   |       internal in --> {filename}#[uuid]
+#   |   |       internal out --> {filename}[filenamex].html#[ref]
+#   |   └── [filename2].html --> {filename}[filename2].html
+#   ├── attachments
+#   |   ├── [filename1]
+#   |   |   └── [attachment1] --> {static}/attachments/[filename1]/[attachment1]
+#   |   └── [filename2]
+#   |       └── [attachment2] --> {static}/attachments/[filename2]/[attachment2]
+#   └── pelican.conf.py
+#           PATH = 'content'
+#           PAGE_PATHS = ['pages']
+#           ARTICLE_PATHS = ['articles']
+#           STATIC_PATHS = ['attachments']
 
-    # mapdata:
-    #   uuid                : part of filename and slug
-    #   created             : date
-    #   modified            : modified
-    #   text                : _title and _content
-    #   note                : _comment
-    #   callout             : first is summary, others are ignored
-    #   link                : for title
-    #   attachments
-    #       att-name        :
-    #       att-id          :
-    #   task
-    #       task-start
-    #       task-due
-    #       cost
-    #       cost-type
-    #       task-effort
-    #       task-priority
-    #       task-progress
-    #       resources       :  can be used to set authors
-    #   unused
-    #       icon1
-    #       icon2
-    #       position
-    #       color
-    #       summary1        : no idea what it is ...
-    #       summary2        : no idea what it is ...
+# #################################################################################################################################
+# ITMZ
+# #################################################################################################################################
 
 class ITMZ:
 
     _site = None
-    _file = None
+    _source = None
     _stack = None
-    _elements = None
-    _ithoughts = None
-    _filename = None
-    _path = None
+    # _elements = None
+    # _ithoughts = None
+    # _filename = None
+    # _path = None
 
     # #############################################################################################################################
     # __init__
-    #
-    #   file: iThoughts file
-    #   site: output directory
-    #   type: type of static blog generatot [hugo, pelican, ...]
     # #############################################################################################################################
 
-    def __init__(self, file, site, stack):
-        self._file = file
+    def __init__(self, source, site, stack):
+        self._source = source
         self._site = site
         self._stack = stack
 
-        # read ITMZ file
-        self._ithoughts = zipfile.ZipFile( file, 'r')
-        xmldata = self._ithoughts.read('mapdata.xml')
-        self._elements = ET.fromstring(xmldata)
-
-        self._filename = os.path.basename(self._file).split(".")[0]
-
-        paths = self._filename.split(" - ")
-        for idx, path in enumerate(paths):
-            # paths[idx] = self._normalize( path, slug= True )
-            paths[idx] = re.sub( r'(?u)\A-*', '', paths[idx] )
-            paths[idx] = re.sub( r'(?u)-*\Z', '', paths[idx] )
-        self._path = os.path.sep.join( paths )
-
         self._set_site()
-
-
 
     # #############################################################################################################################
     # _set_site
@@ -163,6 +222,115 @@ themesDir = "../themes"
             fs.close() 
 
     # #############################################################################################################################
+    # _parse_source
+    # #############################################################################################################################
+
+    def _parse_source( self, force=False ):
+
+        files = []
+        if os.path.isdir( self._source ):
+            for top, dirs, filenames in os.walk( self._source, topdown=True ):
+                for file in filenames:
+                    if os.path.splitext(file)[1] == '.itmz': 
+                        files.append(os.path.join(top, file))
+
+        else:
+            files.append( self._source )
+
+        print( files )
+
+        for file in files:
+            self.process_file( file, force )
+
+    # #############################################################################################################################
+    # process_file
+    # #############################################################################################################################
+
+    def process_file( self, file, force=False ):
+
+        structure = self._get_structure( file )
+
+        print( 'structure: {}'.format(structure))
+
+        # read ITMZ file
+        ithoughts = zipfile.ZipFile( file, 'r')
+        xmldata = ithoughts.read('mapdata.xml')
+        elements = ET.fromstring(xmldata)
+
+        # tag iThoughts
+        mod_time = datetime.strptime(elements.attrib['modified'], "%Y-%m-%dT%H:%M:%S")
+
+        # out_file
+        out_file = os.path.join( self._site, os.path.sep.join(structure['content']), structure['filename'] )
+        out_time = datetime.fromtimestamp(os.path.getmtime(out_file)) if os.path.isfile(out_file) else None
+        out_dir = os.path.dirname(out_file)
+
+        print( 'file: {}'.format(file))
+        print( '  out_dir: {}'.format(out_dir))
+        print( '  out_file: {}'.format(out_file))
+        print( '  out_time: {}'.format(out_time))
+        print( '  mod_time: {}'.format(mod_time))
+
+        # need to proceed?
+        if force or not out_time or mod_time > out_time:
+
+            # set the topic tree
+            self._set_topics( structure, ithoughts, elements )
+
+            self._print_elements( elements )
+        
+            output = self._get_html( structure, elements )
+
+            # write the output file
+            print('  > ' + out_file)
+
+            print("    - file:       {}".format( structure['file'] ))
+            print("    - title:      {}".format( structure['title'] ))
+            print("    - name:       {}".format( structure['name'] ))
+            print("    - content:    {}".format( structure['content'] ))
+            print("    - filename:   {}".format( structure['filename'] ))
+            print("    - attachment: {}".format( structure['attachment'] ))
+            print("    - modified:   {}".format( mod_time.strftime("%Y-%m-%dT%H:%M:%S") ))
+            if out_time: 
+                print("    - file:       {}".format( out_time.strftime("%Y-%m-%dT%H:%M:%S") ))
+
+            if not os.path.isdir(out_dir):
+                os.makedirs(out_dir)
+
+            with open(out_file, 'w', encoding='utf-8') as fs:
+                fs.write(output) 
+
+            out_time = datetime.fromtimestamp(os.path.getmtime(out_file))
+            print("    - saved:      {}".format( out_time.strftime("%Y-%m-%dT%H:%M:%S") ))
+
+    # #############################################################################################################################
+    # _get_structure
+    # #############################################################################################################################
+
+    def _get_structure(self, file ):
+        structure = {}
+
+        structure['file'] = file
+        structure['title'] = os.path.basename(file).split(".")[0]
+        structure['name'] = self._slugify(structure['title'])
+
+        if self._stack == 'hugo':
+            structure['content'] = os.path.split(os.path.relpath(structure['file'], self._source))[0].split(os.path.sep)
+            if len(structure['content']) == 1 and structure['content'][0] == '':
+                structure['content'][0] = structure['name']
+            else: 
+                structure['content'].append( structure['name'] )
+            structure['filename'] = "_index.html"
+            structure['attachment'] = [ structure['name'], "attachments" ]
+
+        elif self._stack == 'pelican':
+            structure['content'] = [ "pages" ]
+            structure['filename'] = structure['name'] + ".html"
+            structure['attachment'] = [ "attachments", structure['name'] ]
+
+        return structure
+
+    # #############################################################################################################################
     # _slugify
     # #############################################################################################################################
 
@@ -192,24 +360,89 @@ themesDir = "../themes"
         return value
 
     # #############################################################################################################################
-    # _print_elements
+    # _set_topics
     # #############################################################################################################################
 
-    def _print_elements( self ):
-        IDENT = '    '
+    def _set_topics( self, structure, ithoughts, elements ):
 
-        print( "ELEMENTS\n========\n")
-        for element in self._elements.iter():
-            print( "{}> {}{}".format(
-                                IDENT * element.attrib['_level'] if '_level' in element.attrib else '', 
-                                element.tag, 
-                                " - " + element.attrib['uuid'] if 'uuid' in element.attrib else '' ))
-            if '_title' in element.attrib:
-                print( "{}{}title: {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_title'] ))
-            if '_filename' in element.attrib:
-                print( "{}{}file:  {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_filename'] ))
-        print( "\n\nPROCESSING\n==========\n")
-    
+        self._set_parent( elements=elements, parent=None )
+
+        for element in elements.iter('topic'):
+
+            # _summary
+            if 'note' in element.attrib:
+                element.attrib['_summary'] = element.attrib['note']
+
+            # _links
+            element.attrib['_links'] = []
+
+            if '_parent' in element.attrib:
+                parents = elements.findall( ".//*[@uuid='{}']".format(element.attrib['_parent']) )
+                for parent in parents:
+                    element.attrib['_links'].append( self._get_link( 'parent', parent.attrib['uuid'], structure ) )
+
+            if 'uuid' in element.attrib:
+                for child in elements.findall( ".//*[@_parent='{}']".format(element.attrib['uuid']) ) :
+                    if child.tag == 'topic' and '_directory' in child.attrib: 
+                        element.attrib['_links'].append( self._get_link( 'child', child.attrib['uuid'], structure ) )
+
+                for relation in elements.findall( ".//*[@end1-uuid='{}']".format(element.attrib['uuid']) ) :
+                    rel = elements.find( ".//*[@uuid='{}']".format(relation.attrib['end2-uuid']) )
+                    element.attrib['_links'].append( self._get_link( 'peer', rel.attrib['uuid'], structure ) )
+
+                for relation in elements.findall( ".//*[@end2-uuid='{}']".format(element.attrib['uuid']) ) :
+                    rel = elements.find( ".//*[@uuid='{}']".format(relation.attrib['end1-uuid']) )
+                    element.attrib['_links'].append( self._get_link( 'peer', rel.attrib['uuid'], structure ) )
+
+            # add the link
+            # http://www.google.fr
+            # ithoughts://open?topic=65F7D386-7686-470E-BABC-A3535A6B0798
+            # ithoughts://open?path=Servers.itmz&topic=6D35D231-1C09-4B09-8FCD-E0799EA14096
+            # ../../Pharaoh/Downloads/Ariba%20Guided%20Buying.pdf
+            if 'link' in element.attrib:
+                link = None
+                target = re.split( r":", element.attrib['link'])
+                if target[0] == 'http' or  target[0] == 'https': 
+                    element.attrib['_links'].append( self._get_link( 'external', element.attrib['link'], structure ) )
+                elif target[0] == 'ithoughts':
+                    target = re.split( r"[///?=&]+", target[1])
+                    if target[1] == 'open':
+                        ref = ''
+                        if 'path' in target: ref += os.path.basename(target[target.index('path') + 1])
+                        if 'topic' in target: ref += target[target.index('topic') + 1]
+                        element.attrib['_links'].append( self._get_link( 'link', ref, structure ) )
+
+            # attachment
+            if 'att-id' in element.attrib:
+                try:
+                    # read in itmz file
+                    filename = os.path.join( "assets", element.attrib['att-id'], element.attrib['att-name'] )
+                    data = ithoughts.read(filename)
+
+                    # write attachment
+                    out_ext = os.path.splitext(element.attrib['att-name'])[1]
+                    out_file = os.path.join( os.path.sep.join(structure['attachment']), element.attrib['att-id'] + out_ext )
+                    out_dir = os.path.dirname(out_file)
+                    if not os.path.isdir(out_dir): 
+                        os.makedirs(out_dir)
+                    with open(out_file, 'wb') as fs: 
+                        fs.write(data) 
+
+                    element.attrib['_links'].append( self._get_link( 'attachment', 
+                                                                     element.attrib['att-id'] + out_ext, 
+                                                                     structure, 
+                                                                     title=element.attrib['att-name'] ) )
+
+                except:
+                    pass
+
+            if len(element.attrib['_links']) == 0: element.attrib.pop('_links')
+
+            # cleanup
+            to_remove = ['position', 'color']
+            for key in to_remove: 
+                if key in element.attrib: element.attrib.pop(key)
+
     # #############################################################################################################################
     # _set_parent
     # #############################################################################################################################
@@ -230,156 +463,30 @@ themesDir = "../themes"
             self._set_parent( element, element )
 
     # #############################################################################################################################
-    # Structure
-    # #############################################################################################################################
-    # iThoughts structure
-    # -------------------
-    #   [src]
-    #   ├── [file1].itmz
-    #   |   ├── mapdata.xml
-    #   |   |   ├── tag : 
-    #   |   |       └── topic                : part of filename and slug
-    #   |   |   |       uuid                : part of filename and slug
-    #   |   |       created             : date
-    #   modified            : modified
-    #   text                : _title and _content
-    #   note                : _comment
-    #   callout             : first is summary, others are ignored
-    #   link                : for title
-    #   attachments
-    #       att-name        :
-    #       att-id          :
-    #   task
-    #       task-start
-    #       task-due
-    #       cost
-    #       cost-type
-    #       task-effort
-    #       task-priority
-    #       task-progress
-    #       resources       :  can be used to set authors
-    #   unused
-    #       icon1
-    #       icon2
-    #       position
-    #       color
-    #       summary1        : no idea what it is ...
-    #       summary2        : no idea what it is ...
-    #   |   └── assets
-    #   |       ├── [uuid1]
-    #   |       |   ├── [attachment1]
-    #   |       |   └── [attachment1]
-    #   |       └── [uuid2]
-    #   |           └── [attachment3]
-    #   ├── [file2].itmz
-    #   |   ├── mapdata.xml
-    #   |   └── assets
-    #   |       └── [uuid3]
-    #   |           └── [attachment4]
-    #   └── [folder]
-    #       ├── [file3].itmz
-    #       |   ├── mapdata.xml
-    #       |   └── assets
-    #       |       └── [uuid4]
-    #       |           └── [attachment5]
-    #       └── [folder]
-    #           └── [file4].itmz
-    #
-    # Hugo structure
-    # --------------
-    #   content
-    #   ├── _index.html
-    #   ├── [filename1] == page1 bundle for itmz1
-    #   |   ├── _index.html == filename1 page
-    #   |   |       external --> url
-    #   |   |       internal in --> {{< ref "#[uuid]" >}}
-    #   |   |       internal out --> {{< ref "/[filename2]/_index#[uuid]" >}}
-    #   |   ├── attachments
-    #   |   |   └── [attachment1] 
-    #   |   |           --> {{< ref "/[filename1]/attachments/[attachment1]" >}}
-    #   |   |           --> {{< ref "attachments/[attachment1]" >}}
-    #   |   └── [filename2] --> page2 bundle for itmz2
-    #   |       ├── _index.html == filename2 page
-    #   |       └── attachments
-    #   |           └── [attachment2] 
-    #   |                   --> {{< ref "/[filename1]/[filename2]/attachments/[attachment2]" >}}
-    #   |                   --> {{< ref "attachments/[attachment2]" >}}
-    #   ├── layouts
-    #   |   └── shortcodes
-    #   |       └── [shortcodes].html
-    #   └── config.toml
-    #
-    # Pelican structure
-    # -----------------
-    #   content
-    #   ├── pages
-    #   |   ├── [filename1].html
-    #   |   |       external --> url
-    #   |   |       internal in --> {filename}#[uuid]
-    #   |   |       internal out --> {filename}[filenamex].html#[ref]
-    #   |   └── [filename2].html --> {filename}[filename2].html
-    #   ├── attachments
-    #   |   ├── [filename1]
-    #   |   |   └── [attachment1] --> {static}/attachments/[filename1]/[attachment1]
-    #   |   └── [filename2]
-    #   |       └── [attachment2] --> {static}/attachments/[filename2]/[attachment2]
-    #   └── pelican.conf.py
-    #           PATH = 'content'
-    #           PAGE_PATHS = ['pages']
-    #           ARTICLE_PATHS = ['articles']
-    #           STATIC_PATHS = ['attachments']
-
-    def _get_directory( self, type='attachment', relative=False ):
-        dir = ''
-        if self._stack == 'hugo':
-            dir = ''
-        elif self._stack == 'pelican':
-            if type == 'attachment': dir = os.path.join( "attachments", self._filename )
-            elif type == 'post': dir = os.path.join( "articles", self._filename )
-            elif type == 'page': dir = os.path.join( "pages" )
-
-        # dir = os.path.join( dir, self._path ) if dir else ''
-        if not relative: dir = os.path.join( self._site, dir )
-
-        return dir
-
-    # #############################################################################################################################
-    # _get_file
-    # #############################################################################################################################
-
-    def _get_file( self, name, type='post', relative=False ):
-
-        file = name
-        if self._stack == 'hugo':
-            if type == 'post': 
-                file = '_index.html'
-        elif self._stack == 'pelican':
-            if type in ['page', 'post']: 
-                file = os.path.basename(name).split(".")[0] + ".html"
-
-        return os.path.join( self._get_directory(type, relative), file )
-
-    # #############################################################################################################################
     # _get_link
     # #############################################################################################################################
-    # type of link:
-    #   external:external webpage 
-    #       ref
-    #   parent, child, peer: internal anchor refering to uuid
-    #       hugo:
-    #       pelican: {filename}[self._filename].html#[ref]
-    #   link: external anchor refering to uuid
-    #       hugo:
-    #       pelican: {filename}[filename].html#[ref]
-    #   attachment: link to a internal file
-    #       hugo:
-    #       pelican: {static}/attachments/[self._filename]/[ref]
 
-    def _get_link( self, type, ref, filename=None ):
+    def _get_link( self, type, ref, structure, title=None ):
 
-        link = None
+        link = {}
+        link['type'] = type
+        if title: link['title'] = title
+        link['ref'] = ref
+
         if self._stack == 'hugo':
-            link = ref
+            if type in ['parent', 'child', 'peer']: 
+                link['type'] = 'unknown'
+            elif type in ['link']: 
+                if ref[0] == '#': # iThoughts in
+                    src = ''
+                    uuid = ref
+                else: # iThoughts out
+                    src = ''
+                    uuid = ''
+                link['ref'] = '{{< ref "' + src + '#' + uuid + '" >}}'
+            elif type in ['attachment']: 
+                link['ref'] = '{{< ref "attachments/' + ref + '" >}}'
+
         elif self._stack == 'pelican':
             if not filename: filename = self._filename
             if type in ['parent', 'child', 'peer', 'link']: 
@@ -392,109 +499,39 @@ themesDir = "../themes"
         return link
 
     # #############################################################################################################################
-    # _set_topics
+    # _print_elements
     # #############################################################################################################################
 
-    def _set_topics( self ):
+    def _print_elements( self, elements ):
+        IDENT = '    '
 
-        self._set_parent( elements=self._elements, parent=None )
-
-        for element in self._elements.iter('topic'):
-
-            # _summary
-            if 'note' in element.attrib:
-                element.attrib['_summary'] = element.attrib['note']
-
-            # _links
-            element.attrib['_links'] = []
-
-            if '_parent' in element.attrib:
-                parents = self._elements.findall( ".//*[@uuid='{}']".format(element.attrib['_parent']) )
-                for parent in parents:
-                    link = { 'ref': self._get_link( 'parent', parent.attrib['uuid'] ), 'type': 'parent' }
-                    element.attrib['_links'].append( link )
-
-            if 'uuid' in element.attrib:
-                for child in self._elements.findall( ".//*[@_parent='{}']".format(element.attrib['uuid']) ) :
-                    if child.tag == 'topic' and '_directory' in child.attrib: 
-                        link = { 'ref': self._get_link( 'child', child.attrib['uuid'] ), 'type': 'child' }
-                        element.attrib['_links'].append( link )
-
-                for relation in self._elements.findall( ".//*[@end1-uuid='{}']".format(element.attrib['uuid']) ) :
-                    rel = self._elements.find( ".//*[@uuid='{}']".format(relation.attrib['end2-uuid']) )
-                    link = { 'ref': self._get_link( 'peer', rel.attrib['uuid'] ), 'type': 'peer' }
-                    element.attrib['_links'].append( link )
-
-                for relation in self._elements.findall( ".//*[@end2-uuid='{}']".format(element.attrib['uuid']) ) :
-                    rel = self._elements.find( ".//*[@uuid='{}']".format(relation.attrib['end1-uuid']) )
-                    link = { 'ref': self._get_link( 'peer', rel.attrib['uuid'] ), 'type': 'peer' }
-                    element.attrib['_links'].append( link )
-
-            # add the link
-            # http://www.google.fr
-            # ithoughts://open?topic=65F7D386-7686-470E-BABC-A3535A6B0798
-            # ithoughts://open?path=Servers.itmz&topic=6D35D231-1C09-4B09-8FCD-E0799EA14096
-            # ../../Pharaoh/Downloads/Ariba%20Guided%20Buying.pdf
-            if 'link' in element.attrib:
-                link = None
-                target = re.split( r":", element.attrib['link'])
-                if target[0] == 'http' or  target[0] == 'https': 
-                    link = { 'ref': self._get_link( 'external', element.attrib['link'] ), 'type': 'external' }
-                elif target[0] == 'ithoughts':
-                    target = re.split( r"[///?=&]+", target[1])
-                    if target[1] == 'open':
-                        link = { 'ref': self._get_link( 'link', 
-                                                        target[target.index('topic') + 1], 
-                                                        os.path.basename(target[target.index('path') + 1]) if 'path' in target else None ), 
-                                 'type': 'link' }
-
-                if link:
-                    element.attrib['_links'].append( link )
-
-            # attachment
-            if 'att-id' in element.attrib:
-                try:
-                    # read in itmz file
-                    filename = os.path.join( "assets", element.attrib['att-id'], element.attrib['att-name'] )
-                    data = self._ithoughts.read(filename)
-
-                    # write attachment
-                    out_ext = os.path.splitext(element.attrib['att-name'])[1]
-                    out_file = self._get_file( element.attrib['att-id'] + out_ext, type='attachment', relative=False)
-                    out_dir = os.path.dirname(out_file)
-                    if not os.path.isdir(out_dir): 
-                        os.makedirs(out_dir)
-                    with open(out_file, 'wb') as fs: 
-                        fs.write(data) 
-
-                    element.attrib['_links'].append( { 'title': element.attrib['att-name'], 
-                                                       'ref': self._get_link( 'attachment', element.attrib['att-id'] + out_ext ),
-                                                       'type': 'attachment' } )
-                except:
-                    pass
-
-            if len(element.attrib['_links']) == 0: element.attrib.pop('_links')
-
-
-
-            # cleanup
-            to_remove = ['position', 'color']
-            for key in to_remove: 
-                if key in element.attrib: element.attrib.pop(key)
-
+        print( "ELEMENTS\n========\n")
+        for element in elements.iter():
+            print( "{}> {}{}".format(
+                                IDENT * element.attrib['_level'] if '_level' in element.attrib else '', 
+                                element.tag, 
+                                " - " + element.attrib['uuid'] if 'uuid' in element.attrib else '' ))
+            if '_title' in element.attrib:
+                print( "{}{}title: {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_title'] ))
+            if '_filename' in element.attrib:
+                print( "{}{}file:  {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_filename'] ))
+            if '_links' in element.attrib:
+                print( "{}{}links:  {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_links'] ))
+        print( "\n\nPROCESSING\n==========\n")
+    
     # #############################################################################################################################
     # _get_html
     # #############################################################################################################################
 
-    def _get_html( self ):
+    def _get_html( self, structure, elements ):
 
         output = ''
-        output += self._get_frontmatter()
+        output += self._get_frontmatter(structure, elements)
         output += '<html>\n'
-        output += self._get_header()
+        output += self._get_header( structure, elements )
         output += '<body>\n'
-        for topic in self._elements.iter('topic'):
-            if not '_parent' in topic.attrib: output += self._get_body( topic, 0 )
+        for topic in elements.iter('topic'):
+            if not '_parent' in topic.attrib: output += self._get_body( elements, topic, 0 )
         output += '</body>\n'
         output += '</html>'
 
@@ -504,12 +541,12 @@ themesDir = "../themes"
     # _get_frontmatter
     # #############################################################################################################################
 
-    def _get_frontmatter( self ):
+    def _get_frontmatter( self, structure, elements ):
 
         output = "---\n"
-        output += 'title: "{}"\n'.format(self._filename)
-        output += "date: {}\n".format(self._elements.attrib['modified'])
-        output += 'author: "{}"\n'.format( self._elements.attrib['author'] )
+        output += 'title: "{}"\n'.format(structure['title'])
+        output += "date: {}\n".format(elements.attrib['modified'])
+        output += 'author: "{}"\n'.format(elements.attrib['author'])
         output += '---\n'
 
         return output
@@ -518,17 +555,17 @@ themesDir = "../themes"
     # _get_header
     # #############################################################################################################################
 
-    def _get_header( self ):
+    def _get_header( self, structure, elements ):
 
         output = '<head>\n'
-        output += '\t<title>{}</title>\n'.format(self._filename)
-        output += '\t<meta name="date" content="{}" />\n'.format(self._elements.attrib['modified'])
+        output += '\t<title>{}</title>\n'.format(structure['title'])
+        output += '\t<meta name="date" content="{}" />\n'.format(elements.attrib['modified'])
         # output += '\t<meta name="modified" content="{}" />\n'.format('')
         # output += '\t<meta name="keywords" content="{}" />\n'.format('')
         # output += '\t<meta name="category" content="{}" />\n'.format('')
-        output += '\t<meta name="author" content="{}" />\n'.format(self._elements.attrib['author'])
+        output += '\t<meta name="author" content="{}" />\n'.format(elements.attrib['author'])
         # output += '\t<meta name="authors" content="{}" />\n'.format('')
-        output += '\t<meta name="slug" content="{}" />\n'.format(self._slugify(self._filename))
+        output += '\t<meta name="slug" content="{}" />\n'.format(structure['name'])
         # output += '\t<meta name="summary" content="{}" />\n'.format('')
         # output += '\t<meta name="lang" content="{}" />\n'.format('')
         # output += '\t<meta name="translation" content="{}" />\n'.format('')
@@ -538,24 +575,10 @@ themesDir = "../themes"
         return output
 
     # #############################################################################################################################
-    # _get_metadata
-    # #############################################################################################################################
-
-    def _get_metadata( self ):
-
-        output = "---\n"
-        output += 'title: "{}"\n'.format(filename)
-        output += "date: {}\n".format(self._elements.attrib['modified'])
-        output += 'author: "{}"\n'.format( elements.attrib['author'] )
-        output += '---\n'
-
-        return output
-
-    # #############################################################################################################################
     # _get_body
     # #############################################################################################################################
 
-    def _get_body( self, topic, level=0 ):
+    def _get_body( self, elements, topic, level=0 ):
 
         output = ''
 
@@ -637,53 +660,112 @@ themesDir = "../themes"
 
             # add childs
             if 'uuid' in topic.attrib:
-                for child in self._elements.findall( ".//*[@_parent='{}']".format(topic.attrib['uuid']) ) :
+                for child in elements.findall( ".//*[@_parent='{}']".format(topic.attrib['uuid']) ) :
                     if child.tag == 'topic':
-                        output += self._get_body( child, level+1 )
+                        output += self._get_body( elements, child, level+1 )
 
         if output != '': output += '\n'
         return output
 
+# #############################################################################################################################
+# ITMZ_FILE
+# #############################################################################################################################
+
+class ITMZ_FILE:
+
+    _stack = None
+    _elements = None
+    _ithoughts = None
+    _title = None
+    _directory = None
+
     # #############################################################################################################################
-    # process_file
+    # __init__
+    #
+    #   ithoughts: pointer to iThoughts file
+    #   elements: list of iThoughts elements
+    #   title: name of the file
+    #   directory: base directory for the file
+    #   stack: static blog generatot [hugo, pelican, ...]
     # #############################################################################################################################
 
-    def process_file( self, force=False ):
+    def __init__(self, ithoughts, elements, title, directory, stack):
+        self._file = file
+        self._site = site
+        self._stack = stack
+        self._elements = elements
+        self._directory = directory
 
-        # tag iThoughts
-        mod_time = datetime.strptime(self._elements.attrib['modified'], "%Y-%m-%dT%H:%M:%S")
+        self._filename = os.path.basename(self._file).split(".")[0]
 
-        # out_file
-        out_file = self._get_file(self._filename, type='page' )
-        out_time = datetime.fromtimestamp(os.path.getmtime(out_file)) if os.path.isfile(out_file) else None
-        out_dir = os.path.dirname(out_file)
+        paths = self._filename.split(" - ")
+        for idx, path in enumerate(paths):
+            # paths[idx] = self._normalize( path, slug= True )
+            paths[idx] = re.sub( r'(?u)\A-*', '', paths[idx] )
+            paths[idx] = re.sub( r'(?u)-*\Z', '', paths[idx] )
+        self._path = os.path.sep.join( paths )
 
-        # need to proceed?
-        if force or not out_time or mod_time > out_time:
 
-            # set the topic tree
-            self._set_topics()
+    # #############################################################################################################################
+    # _slugify
+    # #############################################################################################################################
 
-            self._print_elements()
-        
-            output = self._get_html()
+    def _slugify(self, value):
 
-            # write the output file
-            print('  > ' + out_file)
+        # remove invalid chars (replaced by '-')
+        value = re.sub( r'[<>:"/\\|?*^%]', '-', value, flags=re.IGNORECASE )
 
-            print("    - title:    {}".format( self._filename ))
-            print("    - modified: {}".format( mod_time.strftime("%Y-%m-%dT%H:%M:%S") ))
-            if out_time: 
-                print("    - file:     {}".format( out_time.strftime("%Y-%m-%dT%H:%M:%S") ))
+        # remove non-alphabetical/whitespace/'-' chars
+        value = re.sub( r'[^\w\s-]', '', value, flags=re.IGNORECASE )
 
-            if not os.path.isdir(out_dir):
-                os.makedirs(out_dir)
+        # replace whitespace by '-'
+        value = re.sub( r'[\s]+', '-', value, flags=re.IGNORECASE )
 
-            with open(out_file, 'w', encoding='utf-8') as fs:
-                fs.write(output) 
+        # lower case
+        value = value.lower()
 
-            out_time = datetime.fromtimestamp(os.path.getmtime(out_file))
-            print("    - saved:    {}".format( out_time.strftime("%Y-%m-%dT%H:%M:%S") ))
+        # reduce multiple whitespace to single whitespace
+        value = re.sub( r'[\s]+', ' ', value, flags=re.IGNORECASE)
+
+        # reduce multiple '-' to single '-'
+        value = re.sub( r'[-]+', '-', value, flags=re.IGNORECASE)
+
+        # strip
+        value = value.strip()
+
+        return value
+
+    def _get_directory( self, type='attachment', relative=False ):
+        dir = ''
+        if self._stack == 'hugo':
+            dir = ''
+        elif self._stack == 'pelican':
+            if type == 'attachment': dir = os.path.join( "attachments", self._filename )
+            elif type == 'post': dir = os.path.join( "articles", self._filename )
+            elif type == 'page': dir = os.path.join( "pages" )
+
+        # dir = os.path.join( dir, self._path ) if dir else ''
+        if not relative: dir = os.path.join( self._site, dir )
+
+        return dir
+
+    # #############################################################################################################################
+    # _get_file
+    # #############################################################################################################################
+
+    def _get_file( self, name, type='post', relative=False ):
+
+        file = name
+        if self._stack == 'hugo':
+            if type == 'post': 
+                file = '_index.html'
+        elif self._stack == 'pelican':
+            if type in ['page', 'post']: 
+                file = os.path.basename(name).split(".")[0] + ".html"
+
+        return os.path.join( self._get_directory(type, relative), file )
+
+
 
 # #################################################################################################################################
 # process_files
@@ -691,21 +773,24 @@ themesDir = "../themes"
 
 def process_files(source, site, stack, force):
 
-    filenames = []
-    if os.path.isdir(source):
-        for top, dirs, files in os.walk(source):
-            for name in files:
-                if os.path.splitext(name)[1] == '.itmz': filenames.append(os.path.join(top, name))
-    else:
-        filenames.append(source)
+    itmz = ITMZ( source=source, site=site, stack=stack )
+    itmz._parse_source( force )
 
-    for file in filenames:
-        if not os.path.exists(file):
-            print( "{} does not exist".format(file))
-            continue
-        else:
-            itmz = ITMZ( file=file, site=site, stack=stack )
-            itmz.process_file( force )
+    # filenames = []
+    # if os.path.isdir(source):
+    #     for top, dirs, files in os.walk(source):
+    #         for name in files:
+    #             if os.path.splitext(name)[1] == '.itmz': filenames.append(os.path.join(top, name))
+    # else:
+    #     filenames.append(source)
+
+    # for file in filenames:
+    #     if not os.path.exists(file):
+    #         print( "{} does not exist".format(file))
+    #         continue
+    #     else:
+    #         itmz = ITMZ( file=file, site=site, stack=stack )
+    #         itmz.process_file( force )
 
 # #################################################################################################################################
 # main
@@ -755,6 +840,6 @@ def main():
            
     process_files( source=args.input, site=args.output, stack=stack, force=args.force or False )
 
-    print( "http://docker.local:8888")
+    print( "hugo server --bind 0.0.0.0 --port 8888 --baseURL http://pharaoh.local --destination /web --cleanDestinationDir --renderToDisk --watch")
 
 main()

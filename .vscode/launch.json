@@ -12,7 +12,8 @@
             "program": "${file}",
 //            "args": [ "/data", "--output", "site/hugo/content", "--force" ],
 //            "args": [ "/data/Test.itmz", "--output", "site/hugo/content", "--force" ],
-            "args": [ "/data/Test.itmz", "--output", "site/pelican/content", "--pelican", "--force" ],
+//            "args": [ "/data/Test.itmz", "--output", "site/pelican/content", "--pelican", "--force" ],
+            "args": [ "/data", "--output", "site/hugo/content", "--hugo", "--force" ],
             "console": "integratedTerminal"
         }
     ]
