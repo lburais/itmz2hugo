@@ -667,131 +667,6 @@ themesDir = "../themes"
         if output != '': output += '\n'
         return output
 
-# #############################################################################################################################
-# ITMZ_FILE
-# #############################################################################################################################
-
-class ITMZ_FILE:
-
-    _stack = None
-    _elements = None
-    _ithoughts = None
-    _title = None
-    _directory = None
-
-    # #############################################################################################################################
-    # __init__
-    #
-    #   ithoughts: pointer to iThoughts file
-    #   elements: list of iThoughts elements
-    #   title: name of the file
-    #   directory: base directory for the file
-    #   stack: static blog generatot [hugo, pelican, ...]
-    # #############################################################################################################################
-
-    def __init__(self, ithoughts, elements, title, directory, stack):
-        self._file = file
-        self._site = site
-        self._stack = stack
-        self._elements = elements
-        self._directory = directory
-
-        self._filename = os.path.basename(self._file).split(".")[0]
-
-        paths = self._filename.split(" - ")
-        for idx, path in enumerate(paths):
-            # paths[idx] = self._normalize( path, slug= True )
-            paths[idx] = re.sub( r'(?u)\A-*', '', paths[idx] )
-            paths[idx] = re.sub( r'(?u)-*\Z', '', paths[idx] )
-        self._path = os.path.sep.join( paths )
-
-
-    # #############################################################################################################################
-    # _slugify
-    # #############################################################################################################################
-
-    def _slugify(self, value):
-
-        # remove invalid chars (replaced by '-')
-        value = re.sub( r'[<>:"/\\|?*^%]', '-', value, flags=re.IGNORECASE )
-
-        # remove non-alphabetical/whitespace/'-' chars
-        value = re.sub( r'[^\w\s-]', '', value, flags=re.IGNORECASE )
-
-        # replace whitespace by '-'
-        value = re.sub( r'[\s]+', '-', value, flags=re.IGNORECASE )
-
-        # lower case
-        value = value.lower()
-
-        # reduce multiple whitespace to single whitespace
-        value = re.sub( r'[\s]+', ' ', value, flags=re.IGNORECASE)
-
-        # reduce multiple '-' to single '-'
-        value = re.sub( r'[-]+', '-', value, flags=re.IGNORECASE)
-
-        # strip
-        value = value.strip()
-
-        return value
-
-    def _get_directory( self, type='attachment', relative=False ):
-        dir = ''
-        if self._stack == 'hugo':
-            dir = ''
-        elif self._stack == 'pelican':
-            if type == 'attachment': dir = os.path.join( "attachments", self._filename )
-            elif type == 'post': dir = os.path.join( "articles", self._filename )
-            elif type == 'page': dir = os.path.join( "pages" )
-
-        # dir = os.path.join( dir, self._path ) if dir else ''
-        if not relative: dir = os.path.join( self._site, dir )
-
-        return dir
-
-    # #############################################################################################################################
-    # _get_file
-    # #############################################################################################################################
-
-    def _get_file( self, name, type='post', relative=False ):
-
-        file = name
-        if self._stack == 'hugo':
-            if type == 'post': 
-                file = '_index.html'
-        elif self._stack == 'pelican':
-            if type in ['page', 'post']: 
-                file = os.path.basename(name).split(".")[0] + ".html"
-
-        return os.path.join( self._get_directory(type, relative), file )
-
-
-
-# #################################################################################################################################
-# process_files
-# #################################################################################################################################
-
-def process_files(source, site, stack, force):
-
-    itmz = ITMZ( source=source, site=site, stack=stack )
-    itmz._parse_source( force )
-
-    # filenames = []
-    # if os.path.isdir(source):
-    #     for top, dirs, files in os.walk(source):
-    #         for name in files:
-    #             if os.path.splitext(name)[1] == '.itmz': filenames.append(os.path.join(top, name))
-    # else:
-    #     filenames.append(source)
-
-    # for file in filenames:
-    #     if not os.path.exists(file):
-    #         print( "{} does not exist".format(file))
-    #         continue
-    #     else:
-    #         itmz = ITMZ( file=file, site=site, stack=stack )
-    #         itmz.process_file( force )
-
 # #################################################################################################################################
 # main
 # #################################################################################################################################
@@ -838,7 +713,9 @@ def main():
             error = 'Unable to create the output folder: ' + args.output
             exit(error)
            
-    process_files( source=args.input, site=args.output, stack=stack, force=args.force or False )
+    itmz = ITMZ( source=args.input, site=args.output, stack=stack )
+    itmz._parse_source( args.force or False )
+
 
     print( "hugo server --bind 0.0.0.0 --port 8888 --baseURL http://pharaoh.local --destination /web --cleanDestinationDir --renderToDisk --watch")
 
