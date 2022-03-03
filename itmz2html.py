@@ -75,7 +75,7 @@ class ITMZ:
 
         paths = self._filename.split(" - ")
         for idx, path in enumerate(paths):
-            paths[idx] = self._normalize( path, slug= True )
+            # paths[idx] = self._normalize( path, slug= True )
             paths[idx] = re.sub( r'(?u)\A-*', '', paths[idx] )
             paths[idx] = re.sub( r'(?u)-*\Z', '', paths[idx] )
         self._path = os.path.sep.join( paths )
@@ -163,27 +163,22 @@ themesDir = "../themes"
             fs.close() 
 
     # #############################################################################################################################
-    # _normalize
+    # _slugify
     # #############################################################################################################################
 
-    def _normalize(self, value, slug=False):
+    def _slugify(self, value):
 
         # remove invalid chars (replaced by '-')
         value = re.sub( r'[<>:"/\\|?*^%]', '-', value, flags=re.IGNORECASE )
 
-        if not slug: 
-            # replace ", ',  chars
-            value = re.sub( r'["”]', '\"', value, flags=re.IGNORECASE )
-            value = re.sub( r"['’]", "\'", value, flags=re.IGNORECASE )
-        else:
-            # remove non-alphabetical/whitespace/'-' chars
-            value = re.sub( r'[^\w\s-]', '', value, flags=re.IGNORECASE )
+        # remove non-alphabetical/whitespace/'-' chars
+        value = re.sub( r'[^\w\s-]', '', value, flags=re.IGNORECASE )
 
-            # replace whitespace by '-'
-            value = re.sub( r'[\s]+', '-', value, flags=re.IGNORECASE )
+        # replace whitespace by '-'
+        value = re.sub( r'[\s]+', '-', value, flags=re.IGNORECASE )
 
-            # ignore case
-            value = value.lower()
+        # lower case
+        value = value.lower()
 
         # reduce multiple whitespace to single whitespace
         value = re.sub( r'[\s]+', ' ', value, flags=re.IGNORECASE)
@@ -193,7 +188,6 @@ themesDir = "../themes"
 
         # strip
         value = value.strip()
-
 
         return value
 
@@ -236,47 +230,116 @@ themesDir = "../themes"
             self._set_parent( element, element )
 
     # #############################################################################################################################
-    # _get_directory
+    # Structure
     # #############################################################################################################################
+    # iThoughts structure
+    # -------------------
+    #   [src]
+    #   ├── [file1].itmz
+    #   |   ├── mapdata.xml
+    #   |   |   ├── tag : 
+    #   |   |       └── topic                : part of filename and slug
+    #   |   |   |       uuid                : part of filename and slug
+    #   |   |       created             : date
+    #   modified            : modified
+    #   text                : _title and _content
+    #   note                : _comment
+    #   callout             : first is summary, others are ignored
+    #   link                : for title
+    #   attachments
+    #       att-name        :
+    #       att-id          :
+    #   task
+    #       task-start
+    #       task-due
+    #       cost
+    #       cost-type
+    #       task-effort
+    #       task-priority
+    #       task-progress
+    #       resources       :  can be used to set authors
+    #   unused
+    #       icon1
+    #       icon2
+    #       position
+    #       color
+    #       summary1        : no idea what it is ...
+    #       summary2        : no idea what it is ...
+    #   |   └── assets
+    #   |       ├── [uuid1]
+    #   |       |   ├── [attachment1]
+    #   |       |   └── [attachment1]
+    #   |       └── [uuid2]
+    #   |           └── [attachment3]
+    #   ├── [file2].itmz
+    #   |   ├── mapdata.xml
+    #   |   └── assets
+    #   |       └── [uuid3]
+    #   |           └── [attachment4]
+    #   └── [folder]
+    #       ├── [file3].itmz
+    #       |   ├── mapdata.xml
+    #       |   └── assets
+    #       |       └── [uuid4]
+    #       |           └── [attachment5]
+    #       └── [folder]
+    #           └── [file4].itmz
+    #
     # Hugo structure
+    # --------------
     #   content
+    #   ├── _index.html
+    #   ├── [filename1] == page1 bundle for itmz1
+    #   |   ├── _index.html == filename1 page
+    #   |   |       external --> url
+    #   |   |       internal in --> {{< ref "#[uuid]" >}}
+    #   |   |       internal out --> {{< ref "/[filename2]/_index#[uuid]" >}}
+    #   |   ├── attachments
+    #   |   |   └── [attachment1] 
+    #   |   |           --> {{< ref "/[filename1]/attachments/[attachment1]" >}}
+    #   |   |           --> {{< ref "attachments/[attachment1]" >}}
+    #   |   └── [filename2] --> page2 bundle for itmz2
+    #   |       ├── _index.html == filename2 page
+    #   |       └── attachments
+    #   |           └── [attachment2] 
+    #   |                   --> {{< ref "/[filename1]/[filename2]/attachments/[attachment2]" >}}
+    #   |                   --> {{< ref "attachments/[attachment2]" >}}
+    #   ├── layouts
+    #   |   └── shortcodes
+    #   |       └── [shortcodes].html
+    #   └── config.toml
     #
     # Pelican structure
+    # -----------------
     #   content
     #   ├── pages
     #   |   ├── [filename1].html
-    #   |   ├── [filename2].html --> {filename}[filename2].html
-    #   |   └── attachments
-    #   |       ├── [filename1]
-    #   |       |   └── [attachment1] --> {attach}attachments/[filename1]/[attachment1]
-    #   |       └── [filename2]
-    #   |           └── [attachment2] --> {attach}attachments/[filename2]/[attachment2]
+    #   |   |       external --> url
+    #   |   |       internal in --> {filename}#[uuid]
+    #   |   |       internal out --> {filename}[filenamex].html#[ref]
+    #   |   └── [filename2].html --> {filename}[filename2].html
     #   ├── attachments
     #   |   ├── [filename1]
     #   |   |   └── [attachment1] --> {static}/attachments/[filename1]/[attachment1]
     #   |   └── [filename2]
     #   |       └── [attachment2] --> {static}/attachments/[filename2]/[attachment2]
-    #   ├── articles
-    #   |   ├── [filename1]
-    #   |   |   └── [uuid1].html
-    #   |   └── [filename2]
-    #   |       └── [uuid2].html
     #   └── pelican.conf.py
     #           PATH = 'content'
     #           PAGE_PATHS = ['pages']
     #           ARTICLE_PATHS = ['articles']
+    #           STATIC_PATHS = ['attachments']
 
     def _get_directory( self, type='attachment', relative=False ):
-        dir = None
+        dir = ''
         if self._stack == 'hugo':
             dir = ''
         elif self._stack == 'pelican':
-            if type == 'attachments': dir = os.path.join( "attachments", self._filename )
+            if type == 'attachment': dir = os.path.join( "attachments", self._filename )
             elif type == 'post': dir = os.path.join( "articles", self._filename )
             elif type == 'page': dir = os.path.join( "pages" )
 
-        if dir: dir = os.path.join( self._path, dir )
-        if not relative: dir = os.path.join( self._site, self._path )
+        # dir = os.path.join( dir, self._path ) if dir else ''
+        if not relative: dir = os.path.join( self._site, dir )
 
         return dir
 
@@ -465,7 +528,7 @@ themesDir = "../themes"
         # output += '\t<meta name="category" content="{}" />\n'.format('')
         output += '\t<meta name="author" content="{}" />\n'.format(self._elements.attrib['author'])
         # output += '\t<meta name="authors" content="{}" />\n'.format('')
-        output += '\t<meta name="slug" content="{}" />\n'.format(self._normalize(self._filename, slug=True))
+        output += '\t<meta name="slug" content="{}" />\n'.format(self._slugify(self._filename))
         # output += '\t<meta name="summary" content="{}" />\n'.format('')
         # output += '\t<meta name="lang" content="{}" />\n'.format('')
         # output += '\t<meta name="translation" content="{}" />\n'.format('')
@@ -498,35 +561,42 @@ themesDir = "../themes"
 
         if topic.tag == 'topic':
 
-            if '_links' in topic.attrib:
-                hyperlink = ''
-                for link in topic.attrib['_links']:
-                    output += '<a href="{}"'.format( link['ref'].lower())
-                    if link['type'] == 'external' or ( link['type'] == 'link' and link['ref'][0] != '#' ): 
-                        output += ' target="_blank"'
-                    icon = None
-                    if link['type'] == 'external': icon = 'fa-solid fa-link'
-                    elif link['type'] == 'parent': icon = 'fa-solid fa-circle-up'
-                    elif link['type'] == 'child': icon = 'fa-solid fa-circle-down'
-                    elif link['type'] == 'peer': icon = 'fa-solid fa-circle-right'
-                    if icon:
-                        output += ' class="btn btn-default {}"'.format(icon)
-                    output += '>'
-                    if 'title' in link: output += link['title']
-                    output += '</a> '
-                output += '\n'
-
+            hyperlinks = ''
             body = ''
+            attachment = ''
 
-            # add content
-            #   force first row to be H2
-            #   shift H by two levels
+            # compile links
+            if '_links' in topic.attrib:
+                for link in topic.attrib['_links']:
+                    if link['type'] in ['attachment']:
+                        attachment += "![{}]({})\n".format( link['title'] if 'title' in link else 'attachment', link['ref'])
+                    else:
+                        hyperlinks += '<a href="{}"'.format( link['ref'])
+                        if link['type'] == 'external' or ( link['type'] == 'link' and link['ref'][0] != '#' ): 
+                            hyperlinks += ' target="_blank"'
+                        icon = None
+                        if link['type'] == 'external': icon = 'fa-solid fa-link'
+                        elif link['type'] == 'parent': icon = 'fa-solid fa-circle-up'
+                        elif link['type'] == 'child': icon = 'fa-solid fa-circle-down'
+                        elif link['type'] == 'peer': icon = 'fa-solid fa-circle-right'
+                        if icon:
+                            #hyperlinks += ' class="btn btn-default {}"'.format(icon)
+                            pass
+                        hyperlinks += '>'
+                        if 'title' in link: hyperlinks += link['title']
+                        hyperlinks += '</a> '
+
+            # add hyperlinks
+            if hyperlinks != '': 
+                output += hyperlinks + '\n'
+
+            # add body
             if 'text' in topic.attrib: 
                 body = topic.attrib['text']
                 if body[0] not in '[#`~]': body = '# ' + body
                 body += '\n'
 
-            # add task
+            # add task information to body
             task_header = []
             task_sep = []
             task_values = []
@@ -549,18 +619,17 @@ themesDir = "../themes"
                 body += "" + "|".join(task_values) + "\n"
                 body += "\n"
 
-            # add attachment as image
-            if '_attachment' in topic.attrib: 
-                body += "![{}]({})\n".format( topic.attrib['_attachment']['title'], topic.attrib['_attachment']['ref'])
+            # add attachment to body as image
+            if attachment != '': body += attachment + '\n'
 
-            # convert to html
+            # convert body to html
             body = markdown.markdown(body, extensions=['tables'])
 
-            # add anchors
+            # add anchors to body
             if 'uuid' in topic.attrib:
                 body = re.sub( r'<h1>', '<h1><a id="{}"></a>'.format(topic.attrib['uuid']), body, flags = re.MULTILINE )
 
-            # shift headers by level
+            # shift headers by level in body
             for h in range (6, 0, -1):
                 body = re.sub( r'h' + str(h) + r'>', 'h{}>'.format(h+level+1), body, flags = re.MULTILINE )
 
@@ -585,7 +654,7 @@ themesDir = "../themes"
         mod_time = datetime.strptime(self._elements.attrib['modified'], "%Y-%m-%dT%H:%M:%S")
 
         # out_file
-        out_file = self._get_file(self._filename, type='post' )
+        out_file = self._get_file(self._filename, type='page' )
         out_time = datetime.fromtimestamp(os.path.getmtime(out_file)) if os.path.isfile(out_file) else None
         out_dir = os.path.dirname(out_file)
 
