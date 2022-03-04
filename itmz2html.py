@@ -127,10 +127,6 @@ class ITMZ:
     _site = None
     _source = None
     _stack = None
-    # _elements = None
-    # _ithoughts = None
-    # _filename = None
-    # _path = None
 
     # #############################################################################################################################
     # __init__
@@ -322,11 +318,11 @@ themesDir = "../themes"
                 structure['content'].append( structure['name'] )
             structure['filename'] = "_index.html"
             structure['attachment'] = [ structure['name'], "attachments" ]
+            for idx, val in enumerate(structure['content']):
+                structure['content'][idx] = self._slugify(val)
 
         elif self._stack == 'pelican':
-            structure['content'] = [ "pages" ]
-            structure['filename'] = structure['name'] + ".html"
-            structure['attachment'] = [ "attachments", structure['name'] ]
+            pass
 
         return structure
 
@@ -409,7 +405,7 @@ themesDir = "../themes"
                     if target[1] == 'open':
                         ref = ''
                         if 'path' in target: ref += os.path.basename(target[target.index('path') + 1])
-                        if 'topic' in target: ref += target[target.index('topic') + 1]
+                        if 'topic' in target: ref += '#' + target[target.index('topic') + 1]
                         element.attrib['_links'].append( self._get_link( 'link', ref, structure ) )
 
             # attachment
@@ -421,7 +417,7 @@ themesDir = "../themes"
 
                     # write attachment
                     out_ext = os.path.splitext(element.attrib['att-name'])[1]
-                    out_file = os.path.join( os.path.sep.join(structure['attachment']), element.attrib['att-id'] + out_ext )
+                    out_file = os.path.join( self._site, os.path.sep.join(structure['attachment']), element.attrib['att-id'] + out_ext )
                     out_dir = os.path.dirname(out_file)
                     if not os.path.isdir(out_dir): 
                         os.makedirs(out_dir)
@@ -477,24 +473,18 @@ themesDir = "../themes"
             if type in ['parent', 'child', 'peer']: 
                 link['type'] = 'unknown'
             elif type in ['link']: 
-                if ref[0] == '#': # iThoughts in
+                if ref[0] == "#": # iThoughts in
                     src = ''
                     uuid = ref
                 else: # iThoughts out
-                    src = ''
-                    uuid = ''
-                link['ref'] = '{{< ref "' + src + '#' + uuid + '" >}}'
+                    src = ref.split('#')[0]
+                    uuid = '#' + ref.split('#')[1] if len(ref.split('#')) >1 else ''
+                link['ref'] = '{}{}'.format(src,uuid)
             elif type in ['attachment']: 
-                link['ref'] = '{{< ref "attachments/' + ref + '" >}}'
+                link['ref'] = 'attachments/{}'.format(ref)
 
         elif self._stack == 'pelican':
-            if not filename: filename = self._filename
-            if type in ['parent', 'child', 'peer', 'link']: 
-                link = "{filename}" + filename + ".html#{}".format(ref)
-            elif type in ['attachment']:
-                link = "{static}/attachments/" + filename + "/{}".format(ref)
-            elif type in ['external']:
-                link = ref
+            pass
 
         return link
 
@@ -515,8 +505,6 @@ themesDir = "../themes"
                 print( "{}{}title: {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_title'] ))
             if '_filename' in element.attrib:
                 print( "{}{}file:  {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_filename'] ))
-            if '_links' in element.attrib:
-                print( "{}{}links:  {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_links'] ))
         print( "\n\nPROCESSING\n==========\n")
     
     # #############################################################################################################################
@@ -592,7 +580,9 @@ themesDir = "../themes"
             if '_links' in topic.attrib:
                 for link in topic.attrib['_links']:
                     if link['type'] in ['attachment']:
-                        attachment += "![{}]({})\n".format( link['title'] if 'title' in link else 'attachment', link['ref'])
+                        attachment += '<img src="{}"'.format(link['ref'])
+                        if 'title' in link: attachment += 'title="{}"'.format( link['ref'] )
+                        attachment += ' />'
                     else:
                         hyperlinks += '<a href="{}"'.format( link['ref'])
                         if link['type'] == 'external' or ( link['type'] == 'link' and link['ref'][0] != '#' ): 
@@ -603,8 +593,7 @@ themesDir = "../themes"
                         elif link['type'] == 'child': icon = 'fa-solid fa-circle-down'
                         elif link['type'] == 'peer': icon = 'fa-solid fa-circle-right'
                         if icon:
-                            #hyperlinks += ' class="btn btn-default {}"'.format(icon)
-                            pass
+                            hyperlinks += ' class="btn btn-default {}"'.format(icon)
                         hyperlinks += '>'
                         if 'title' in link: hyperlinks += link['title']
                         hyperlinks += '</a> '
@@ -717,6 +706,12 @@ def main():
     itmz._parse_source( args.force or False )
 
 
-    print( "hugo server --bind 0.0.0.0 --port 8888 --baseURL http://pharaoh.local --destination /web --cleanDestinationDir --renderToDisk --watch")
+    print( '''
+cd /workspace/itmz2hugo
+cd /workspace/itmz2hugo/site/hugo
+rm -fr content
+rm -fr /web
+hugo server --bind 0.0.0.0 --port 8888 --baseURL http://pharaoh.local --destination /web --cleanDestinationDir --renderToDisk --watch
+    ''')
 
 main()
