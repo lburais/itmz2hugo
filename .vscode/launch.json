@@ -4,16 +4,14 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-    
         {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
             "program": "${file}",
-//            "args": [ "/data", "--output", "site/hugo/content", "--force" ],
-//            "args": [ "/data/Test.itmz", "--output", "site/hugo/content", "--force" ],
-//            "args": [ "/data/Test.itmz", "--output", "site/pelican/content", "--pelican", "--force" ],
-            "args": [ "/data", "--output", "site/hugo/content", "--hugo", "--force" ],
+//            "args": [ "/data", "--output", "site/hugo/content", "--hugo", "--md", "--force" ],
+//            "args": [ "/data/Folder1/Folder2/Test.itmz", "--output", "site/hugo/content", "--hugo", "--md", "--force" ],
+            "args": [ "/data/Folder1", "--output", "site/hugo/content", "--hugo", "--md", "--force" ],
             "console": "integratedTerminal"
         }
     ]

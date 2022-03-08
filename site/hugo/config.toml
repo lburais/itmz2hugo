@@ -9,4 +9,9 @@ themesDir = "../themes"
     themeVariant = "relearn-dark"
     disableToc = false
     disableSearch = false
+
+[markup]
+  [markup.tableOfContents]
+    endLevel = 7
+    ordered = false
         
