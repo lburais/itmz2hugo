@@ -171,7 +171,12 @@ class ITMZ:
         shortcodes['mybutton'] = '''
 <a {{ with .Get "href" }} href="{{ . }}" {{ end }}  {{ with .Get "target" }} target="{{ . }}" {{ end }} {{ with .Get "icon" }} class="{{ . }} btn btn-default" {{ end }}>
 {{ .Inner }}
-</a>        '''
+</a>
+        '''
+
+        shortcodes['myanchor'] = '''
+<a {{ with .Get "id" }} id="{{ . }}" {{ end }}></a>
+        '''
 
         for key, shortcode in shortcodes.items():
             out_file = os.path.join( self._site, "..", "layouts", "shortcodes", key + ".html")
@@ -290,30 +295,6 @@ themesDir = "../themes"
 
     # #############################################################################################################################
     # _get_structure
-    #
-    #   file: unquoted source filename
-    #   title: file basename
-    #   name: slugified title
-    #   content: relative path to source site
-    #   filename: destination filename
-    #   attachment:
-    #
-    #   itmz --> /data/Folder 1/Folder 2/Test.itmz
-    #   file --> /data/Folder 1/Folder 2/Test.itmz
-    #   title --> Test
-    #   slug --> test
-    #   full path --> folder-1/folder-2/test
-    #   path --> .
-    #   attachment --> folder-1/folder-2/test/attachments
-    #
-    #   itmz --> /data/Folder 1/Folder 2/Test.itmz
-    #   file --> ../Test 2.itmz
-    #   title --> Test 2
-    #   slug --> test-2
-    #   source --> ???
-    #   path --> ..
-    #   content file --> ???
-    #   web file --> {path}/{slug}/index.html
     # #############################################################################################################################
 
     def _get_structure(self, file, base=None ):
@@ -324,8 +305,10 @@ themesDir = "../themes"
         structure['title'] = os.path.basename(structure['file']).split(".")[0]
         structure['ext'] = os.path.splitext(structure['file'])[1]
         structure['slug'] = self._slugify(structure['title'])
+        if not os.path.isabs(structure['file']):
+            structure['file'] = os.path.join(os.path.split(structure['itmz'])[0], structure['file'])
 
-        structure['abs path'] = os.path.split( os.path.join(self._site, os.path.relpath(structure['itmz'], self._source)))[0].split(os.path.sep)
+        structure['abs path'] = os.path.split( os.path.join(self._site, os.path.relpath(structure['file'], self._source)))[0].split(os.path.sep)
         for idx, val in enumerate(structure['abs path']): structure['abs path'][idx] = self._slugify(val)
 
         if self._stack == 'hugo':
@@ -345,7 +328,9 @@ themesDir = "../themes"
             if val in structure['rel path']: structure['rel path'].remove(val) 
 
         structure['source'] = os.path.join( os.getcwd(), self._site, os.path.sep.join(structure['abs path']), structure['filename'])
-        structure['reference'] = os.path.join( os.path.sep, os.path.sep.join(structure['rel path']), os.path.sep)
+        structure['reference'] = os.path.sep + os.path.sep.join(structure['rel path']) + os.path.sep
+        if structure['ext'].lower() != '.itmz':
+            structure['reference'] += structure['filename']
 
         print( "----- {} - {} - {} ----".format(file, base['itmz'] if base else None, self._source ) )
         pprint.pprint( structure, sort_dicts=False )
@@ -438,20 +423,24 @@ themesDir = "../themes"
             if '_parent' in element.attrib:
                 parents = elements.findall( ".//*[@uuid='{}']".format(element.attrib['_parent']) )
                 for parent in parents:
-                    element.attrib['_relationships'].append( self._get_link( 'parent', parent.attrib['uuid'], structure ) )
+                    #element.attrib['_relationships'].append( self._get_link( 'parent', parent.attrib['uuid'], structure ) )
+                    element.attrib['_relationships'].append({ 'type': 'parent', 'ref': '#' + parent.attrib['uuid'] })
 
             if 'uuid' in element.attrib:
                 for child in elements.findall( ".//*[@_parent='{}']".format(element.attrib['uuid']) ) :
                     if child.tag == 'topic' and '_directory' in child.attrib: 
-                        element.attrib['_relationships'].append( self._get_link( 'child', child.attrib['uuid'], structure ) )
+                        #element.attrib['_relationships'].append( self._get_link( 'child', child.attrib['uuid'], structure ) )
+                        element.attrib['_relationships'].append({ 'type': 'child', 'ref': '#' + child.attrib['uuid'] })
 
                 for relation in elements.findall( ".//*[@end1-uuid='{}']".format(element.attrib['uuid']) ) :
                     rel = elements.find( ".//*[@uuid='{}']".format(relation.attrib['end2-uuid']) )
-                    element.attrib['_relationships'].append( self._get_link( 'peer', rel.attrib['uuid'], structure ) )
+                    #element.attrib['_relationships'].append( self._get_link( 'peer', rel.attrib['uuid'], structure ) )
+                    element.attrib['_relationships'].append({ 'type': 'peer', 'ref': '#' + rel.attrib['uuid'] })
 
                 for relation in elements.findall( ".//*[@end2-uuid='{}']".format(element.attrib['uuid']) ) :
                     rel = elements.find( ".//*[@uuid='{}']".format(relation.attrib['end1-uuid']) )
-                    element.attrib['_relationships'].append( self._get_link( 'peer', rel.attrib['uuid'], structure ) )
+                    #element.attrib['_relationships'].append( self._get_link( 'peer', rel.attrib['uuid'], structure ) )
+                    element.attrib['_relationships'].append({ 'type': 'peer', 'ref': '#' + rel.attrib['uuid'] })
 
             if len(element.attrib['_relationships']) == 0: element.attrib.pop('_relationships')
 
@@ -471,7 +460,7 @@ themesDir = "../themes"
             if 'link' in element.attrib:
                 target = re.split( r":", element.attrib['link'])
                 if target[0] == 'http' or  target[0] == 'https': 
-                    element.attrib['_link'] = { 'type': 'external', 'title': element.attrib['link'], 'ref': element.attrib['link']}
+                    element.attrib['_link'] = { 'type': 'external', 'title': element.attrib['link'], 'ref': element.attrib['link'], 'target': '_blank'}
 
                 elif target[0] == 'ithoughts':
                     target = re.split( r"[?=&]+", target[1])
@@ -504,7 +493,7 @@ themesDir = "../themes"
                     with open(out_file, 'wb') as fs: 
                         fs.write(data) 
 
-                    element.attrib['_attachment'] = { 'type': 'image', 'title': element.attrib['att-name'], 'ref': link['reference']}
+                    element.attrib['_attachment'] = { 'type': 'image', 'title': element.attrib['att-name'], 'ref': link['reference'], 'target': '_blank'}
 
                 except:
                     pass
@@ -533,25 +522,6 @@ themesDir = "../themes"
 
             self._set_parent( element, element )
 
-    # #############################################################################################################################
-    # _print_elements
-    # #############################################################################################################################
-
-    def _print_elements( self, elements ):
-        IDENT = '    '
-
-        print( "ELEMENTS\n========\n")
-        for element in elements.iter():
-            print( "{}> {}{}".format(
-                                IDENT * element.attrib['_level'] if '_level' in element.attrib else '', 
-                                element.tag, 
-                                " - " + element.attrib['uuid'] if 'uuid' in element.attrib else '' ))
-            if '_title' in element.attrib:
-                print( "{}{}title: {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_title'] ))
-            if '_filename' in element.attrib:
-                print( "{}{}file:  {}".format( IDENT, IDENT * element.attrib['_level'], element.attrib['_filename'] ))
-        print( "\n\nPROCESSING\n==========\n")
-    
     # #############################################################################################################################
     # _get_html
     # #############################################################################################################################
@@ -631,6 +601,7 @@ themesDir = "../themes"
         if topic.tag == 'topic':
 
             # add relationships
+            buttons = ''
             if '_relationships' in topic.attrib:
                 for link in topic.attrib['_relationships']:
                     icon = None
@@ -641,39 +612,50 @@ themesDir = "../themes"
                     elif link['type'] == 'unknown': continue
                     
                     if self._output == "html":
-                        output += '<a href="{}"'.format( link['ref'])
-                        if 'target' in link: output += ' target="{}"'.format(link['target'])
-                        if icon: output += ' class="btn btn-default {}"'.format(icon)
-                        output += '>'
-                        if 'title' in link: output += link['title']
-                        output += '</a> '
+                        buttons += '<a href="{}"'.format( link['ref'])
+                        if 'target' in link: buttons += ' target="{}"'.format(link['target'])
+                        if icon: buttons += ' class="btn btn-default {}"'.format(icon)
+                        buttons += '>'
+                        if 'title' in link: buttons += link['title']
+                        buttons += '</a> '
                     elif self._output == "md":
-                        output += '{{< mybutton href="' + link['ref'] + '"'
-                        if 'target' in link: output += ' target="{}"'.format(link['target'])
-                        if icon: output += ' icon="{}"'.format( icon )
-                        output += ' >}}'
-                        if 'title' in link: output += link['title'] 
-                        output += '{{< /mybutton >}}'
-                output += '\n\n'
+                        buttons += '{{< mybutton href="' + link['ref'] + '"'
+                        if 'target' in link: buttons += ' target="{}"'.format(link['target'])
+                        if icon: buttons += ' icon="{}"'.format( icon )
+                        buttons += ' />}}'
 
             # add body
             if 'text' in topic.attrib: 
                 body = ''
                 if topic.attrib['text'][0] not in '[#`~]': body += '# '
                 body += topic.attrib['text']
+                # convert code
+                body = re.sub( r'```', '~~~', body, flags = re.MULTILINE )
                 # convert body to html
                 body = markdown.markdown(body)
-                # add anchors to body
-                if 'uuid' in topic.attrib:
-                    body = re.sub( r'<h1>', '<h1><a id="{}"></a>'.format(topic.attrib['uuid']), body, flags = re.MULTILINE )
                 # shift headers by level in body
                 for h in range (6, 0, -1):
                     body = re.sub( r'h' + str(h) + r'>', 'h{}>'.format(h+level+1), body, flags = re.MULTILINE )
                 # convert back to markdown
                 if self._output == "md":
                     body = markdownify( body )
+                # add anchors to body
+                if 'uuid' in topic.attrib:
+                    if self._output == "html":
+                        body = '<a id="{}">'.format(topic.attrib['uuid']) + body
+                    elif self._output == "md":
+                        body = '{{< myanchor id="' + topic.attrib['uuid'] + '" >}}\n' + body
+                # add buttons
+                if buttons != '':
+                    if self._output == "html":
+                        body = re.sub( r'<h1>', '<h1> {}'.format(buttons), body, count = 1, flags = re.MULTILINE )
+                    elif self._output == "md":
+                        body = re.sub( r'^(?P<h>#+) ', '\g<h> {}'.format(buttons), body, count = 1, flags = re.MULTILINE )
+
                 body += '\n'
                 output += body
+            else:
+                output += buttons + '\n\n'
 
             # add task information to body
             # tabulate
@@ -702,15 +684,17 @@ themesDir = "../themes"
                     if 'title' in topic.attrib['_attachment']: output += 'title="{}"'.format( topic.attrib['_attachment']['title'] )
                     output += ' />'
                 elif self._output == "md":
-                    output += '![{}]({})'.format( topic.attrib['_attachment']['title'] 
-                                                    if 'title' in topic.attrib['_attachment'] 
-                                                    else topic.attrib['_attachment']['ref'], 
-                                                  topic.attrib['_attachment']['ref'])
+                    output += '{{< figure src="' + topic.attrib['_attachment']['ref'] + '"'
+                    output += ' alt="' + topic.attrib['_attachment']['ref'] + '"'
+                    output += ' caption="' + os.path.basename(topic.attrib['_attachment']['title'] ).split(".")[0]+ '"'
+                    #if 'title' in topic.attrib['_attachment']:
+                    #    output += ' title="' + topic.attrib['_attachment']['title'] + '"'
+                    output += ' >}}'
                 output += "\n\n"
 
             # add link to body 
             if '_link' in topic.attrib:
-                icon = 'fa-solid fa-link' if topic.attrib['_link']['type'] == 'external' else 'fa-solid fa-circle'                    
+                icon = 'fa-solid fa-link' if topic.attrib['_link']['type'] == 'external' else 'fa-solid fa-link'                    
                 if self._output == "html":
                     output += '<a href="{}"'.format( topic.attrib['_link']['ref'])
                     if 'target' in topic.attrib['_link']: output += ' target="{}"'.format(topic.attrib['_link']['target'])
