@@ -9,9 +9,8 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-//            "args": [ "/data", "--output", "site/hugo/content", "--hugo", "--md", "--force" ],
-//            "args": [ "/data/Folder1/Folder2/Test.itmz", "--output", "site/hugo/content", "--hugo", "--md", "--force" ],
-            "args": [ "/data/Folder1", "--output", "site/hugo/content", "--hugo", "--md", "--force" ],
+            "args": [ "/data", "--output", "site/hugo/content", "--force" ],
+//            "args": [ "/data/Folder1", "--output", "site/hugo/content", "--force" ],
             "console": "integratedTerminal"
         }
     ]

@@ -2,15 +2,12 @@
 baseURL = 'http://pharaoh.local'
 languageCode = 'en-us'
 title = 'MindMap'
-theme = "relearn"
+theme = "shadocs"
 themesDir = "../themes"
 
-[params]
-    themeVariant = "relearn-dark"
-    disableToc = false
-    disableSearch = false
-
 [markup]
+  defaultMarkdownHandler = 'goldmark'
+
   [markup.tableOfContents]
     endLevel = 7
     ordered = false
