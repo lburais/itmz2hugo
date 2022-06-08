@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-import argparse
-import os
 import re
 import shutil
 import time
@@ -103,7 +101,46 @@ import zipfile
 #   |   └── shortcodes
 #   |       └── [shortcodes].html
 #   └── config.toml
-
+#
+# Pelican structure
+# -----------------
+#   content
+#   ├── pages
+#   |   ├── [filename1].html
+#   |   |       external --> url
+#   |   |       internal in --> {filename}#[uuid]
+#   |   |       internal out --> {filename}[filenamex].html#[ref]
+#   |   └── [filename2].html --> {filename}[filename2].html
+#   ├── attachments
+#   |   ├── [filename1]
+#   |   |   └── [attachment1] --> {static}/attachments/[filename1]/[attachment1]
+#   |   └── [filename2]
+#   |       └── [attachment2] --> {static}/attachments/[filename2]/[attachment2]
+#   └── pelican.conf.py
+#           PATH = 'content'
+#           PAGE_PATHS = ['pages']
+#           ARTICLE_PATHS = ['articles']
+#           STATIC_PATHS = ['attachments']
+#
+# Nikola structure
+# -----------------
+#   content
+#   ├── pages
+#   |   ├── [filename1].html
+#   |   |       external --> url
+#   |   |       internal in --> {filename}#[uuid]
+#   |   |       internal out --> {filename}[filenamex].html#[ref]
+#   |   └── [filename2].html --> {filename}[filename2].html
+#   ├── attachments
+#   |   ├── [filename1]
+#   |   |   └── [attachment1] --> {static}/attachments/[filename1]/[attachment1]
+#   |   └── [filename2]
+#   |       └── [attachment2] --> {static}/attachments/[filename2]/[attachment2]
+#   └── pelican.conf.py
+#           PATH = 'content'
+#           PAGE_PATHS = ['pages']
+#           ARTICLE_PATHS = ['articles']
+#           STATIC_PATHS = ['attachments']
 
 # #################################################################################################################################
 # ITMZ
@@ -113,14 +150,18 @@ class ITMZ:
 
     _site = None
     _source = None
+    _stack = None
+    _output = None
 
     # #############################################################################################################################
     # __init__
     # #############################################################################################################################
 
-    def __init__(self, source, site):
+    def __init__(self, source, site, stack, output):
         self._source = source
         self._site = site
+        self._stack = stack
+        self._output = output
 
         self._set_site()
 
@@ -129,16 +170,32 @@ class ITMZ:
     # #############################################################################################################################
 
     def _set_site(self):
+        if self._stack == 'hugo': self._set_hugo_site()
+        elif self._stack == 'pelican': self._set_pelican_site()
+        elif self._stack == 'nikola': self._set_nikola_site()
 
+    # #############################################################################################################################
+    # _set_pelican_site
+    # #############################################################################################################################
+
+    def _set_pelican_site(self):
+        pass
+
+    # #############################################################################################################################
+    # _set_nikola_site
+    # #############################################################################################################################
+
+    def _set_nikola_site(self):
+        pass
+
+    # #############################################################################################################################
+    # _set_hugo_site
+    # #############################################################################################################################
+
+    def _set_hugo_site(self):
         shortcodes = {}
         shortcodes['mybutton'] = '''
 <a {{ with .Get "href" }} href="{{ . }}" {{ end }}  {{ with .Get "target" }} target="{{ . }}" {{ end }} {{ with .Get "icon" }} class="{{ . }} btn btn-default" {{ end }}>
-{{ .Inner }}
-</a>
-        '''
-        shortcodes['mybutton'] = '''
-<a {{ with .Get "href" }} href="{{ . }}" {{ end }}  {{ with .Get "target" }} target="{{ . }}" {{ end }} >
-<i class="fas {{ with .Get "icon" }} {{ . }} {{ end }}"></i>
 {{ .Inner }}
 </a>
         '''
@@ -236,7 +293,9 @@ themesDir = "../themes"
 
             # self._print_elements( elements )
         
-            output = self._get_markdown( structure, elements )
+            output = ''
+            if self._output == "html": output = self._get_html( structure, elements )
+            elif self._output == "md": output = self._get_markdown( structure, elements )
 
             # write the output file
             print('  > ' + out_file)
@@ -275,13 +334,17 @@ themesDir = "../themes"
         structure['abs path'] = os.path.split( os.path.join(self._site, os.path.relpath(structure['file'], self._source)))[0].split(os.path.sep)
         for idx, val in enumerate(structure['abs path']): structure['abs path'][idx] = self._slugify(val)
 
-        if structure['ext'].lower() != '.itmz':
-            structure['abs path'].append( base['slug'] )
-            structure['abs path'].append( 'attachments' )
-            structure['filename'] = structure['title'] + structure['ext']
-        else:
-            structure['abs path'].append( structure['slug'] )
-            structure['filename'] = "_index.md"
+        if self._stack == 'hugo':
+            if structure['ext'].lower() != '.itmz':
+                structure['abs path'].append( base['slug'] )
+                structure['abs path'].append( 'attachments' )
+                structure['filename'] = structure['title'] + structure['ext']
+            else:
+                structure['abs path'].append( structure['slug'] )
+                structure['filename'] = "_index." + self._output
+
+        elif self._stack == 'pelican':
+            pass
 
         structure['rel path'] = structure['abs path']
         for val in self._site.split(os.path.sep):
@@ -451,6 +514,24 @@ themesDir = "../themes"
             self._set_parent( element, element )
 
     # #############################################################################################################################
+    # _get_html
+    # #############################################################################################################################
+
+    def _get_html( self, structure, elements ):
+
+        output = ''
+        output += self._get_frontmatter(structure, elements)
+        output += '<html>\n'
+        output += self._get_header( structure, elements )
+        output += '<body>\n'
+        for topic in elements.iter('topic'):
+            if not '_parent' in topic.attrib: output += self._get_body( elements, topic, 0 )
+        output += '</body>\n'
+        output += '</html>'
+
+        return output
+
+    # #############################################################################################################################
     # _get_markdown
     # #############################################################################################################################
 
@@ -478,6 +559,29 @@ themesDir = "../themes"
         return output
 
     # #############################################################################################################################
+    # _get_header
+    # #############################################################################################################################
+
+    def _get_header( self, structure, elements ):
+
+        output = '<head>\n'
+        output += '\t<title>{}</title>\n'.format(structure['title'])
+        output += '\t<meta name="date" content="{}" />\n'.format(elements.attrib['modified'])
+        # output += '\t<meta name="modified" content="{}" />\n'.format('')
+        # output += '\t<meta name="keywords" content="{}" />\n'.format('')
+        # output += '\t<meta name="category" content="{}" />\n'.format('')
+        output += '\t<meta name="author" content="{}" />\n'.format(elements.attrib['author'])
+        # output += '\t<meta name="authors" content="{}" />\n'.format('')
+        output += '\t<meta name="slug" content="{}" />\n'.format(structure['name'])
+        # output += '\t<meta name="summary" content="{}" />\n'.format('')
+        # output += '\t<meta name="lang" content="{}" />\n'.format('')
+        # output += '\t<meta name="translation" content="{}" />\n'.format('')
+        output += '\t<meta name="status" content="{}" />\n'.format('published')
+        output += '</head>\n'
+
+        return output
+
+    # #############################################################################################################################
     # _get_body
     # #############################################################################################################################
 
@@ -497,50 +601,63 @@ themesDir = "../themes"
                     elif link['type'] == 'peer': icon = 'fa-solid fa-circle-right'
                     elif link['type'] == 'unknown': continue
                     
-                    buttons += '{{< mybutton href="' + link['ref'] + '"'
-                    if 'target' in link: buttons += ' target="{}"'.format(link['target'])
-                    if icon: buttons += ' icon="{}"'.format( icon )
-                    buttons += ' />}}'
+                    if self._output == "html":
+                        buttons += '<a href="{}"'.format( link['ref'])
+                        if 'target' in link: buttons += ' target="{}"'.format(link['target'])
+                        if icon: buttons += ' class="btn btn-default {}"'.format(icon)
+                        buttons += '>'
+                        if 'title' in link: buttons += link['title']
+                        buttons += '</a> '
+                    elif self._output == "md":
+                        buttons += '{{< mybutton href="' + link['ref'] + '"'
+                        if 'target' in link: buttons += ' target="{}"'.format(link['target'])
+                        if icon: buttons += ' icon="{}"'.format( icon )
+                        buttons += ' />}}'
 
             # add body
             if 'text' in topic.attrib: 
-                body = topic.attrib['text']
-
-                # first line is title
-                if body[0] not in '[#`~]': 
-                    body = '# ' + body
-
-                # remove first line of page
-                if level == 0:
-                    body = re.sub( r'^# .*', '' + topic.attrib['uuid'] + '}', body, count = 1 )
-
+                body = ''
+                if topic.attrib['text'][0] not in '[#`~]': body += '# '
+                body += topic.attrib['text']
                 # convert code
                 body = re.sub( r'```', '~~~', body, flags = re.MULTILINE )
-
+                #body = re.sub( r'~~~', '```', body, flags = re.MULTILINE )
                 # add anchors to body
                 body = re.sub( r'^(?P<line>.*)', '\g<line> {#' + topic.attrib['uuid'] + '}', body, count = 1 )
 
-                # convert body to html to reorder links
+                # convert body to html
+                #   shift headers
+                #   reorder links
                 body = markdown.markdown(body)
-
                 # shift headers by level in body
                 for h in range (6, 0, -1):
-                    body = re.sub( r'h' + str(h) + r'>', 'h{}>'.format(h+level), body, flags = re.MULTILINE )
-
+                    body = re.sub( r'h' + str(h) + r'>', 'h{}>'.format(h+level+1), body, flags = re.MULTILINE )
                 # convert back to markdown
-                body = markdownify( body )
+                if self._output == "md":
+                    body = markdownify( body )
+
+                # add anchors to body
+                # if 'uuid' in topic.attrib:
+                #     if self._output == "html":
+                #         body = '<a id="{}">'.format(topic.attrib['uuid']) + body
+                #     elif self._output == "md":
+                #         body = '{{< myanchor id="' + topic.attrib['uuid'] + '" >}}\n' + body
 
                 # process H7+
-                body = re.sub( r'^(?P<h>[#]{10}) (?P<title>.*)', '<h10>\g<title></h10>', body, flags = re.MULTILINE )
-                body = re.sub( r'^(?P<h>[#]{9}) (?P<title>.*)', '<h9>\g<title></h9>', body, flags = re.MULTILINE )
-                body = re.sub( r'^(?P<h>[#]{8}) (?P<title>.*)', '<h8>\g<title></h8>', body, flags = re.MULTILINE )
-                body = re.sub( r'^(?P<h>[#]{7}) (?P<title>.*)', '<h7>\g<title></h7>', body, flags = re.MULTILINE )
+                if self._output == "md":
+                    body = re.sub( r'^(?P<h>[#]{10}) (?P<title>.*)', '<h10>\g<title></h10>', body, flags = re.MULTILINE )
+                    body = re.sub( r'^(?P<h>[#]{9}) (?P<title>.*)', '<h9>\g<title></h9>', body, flags = re.MULTILINE )
+                    body = re.sub( r'^(?P<h>[#]{8}) (?P<title>.*)', '<h8>\g<title></h8>', body, flags = re.MULTILINE )
+                    body = re.sub( r'^(?P<h>[#]{7}) (?P<title>.*)', '<h7>\g<title></h7>', body, flags = re.MULTILINE )
 
                 # add buttons
                 if buttons != '':
-                    body = buttons + '\n' + body
-                    # body = re.sub( r'^(?P<h>#+) ', '\g<h> {}'.format(buttons), body, count = 1, flags = re.MULTILINE )
-                    pass
+                    if self._output == "html":
+                        body = re.sub( r'<h1>', '<h1> {}'.format(buttons), body, count = 1, flags = re.MULTILINE )
+                    elif self._output == "md":
+                        pass
+                        # body = buttons + '\n' + body
+                        # body = re.sub( r'^(?P<h>#+) ', '\g<h> {}'.format(buttons), body, count = 1, flags = re.MULTILINE )
 
                 body += '\n'
                 output += body
@@ -564,27 +681,42 @@ themesDir = "../themes"
                     task_table[key] = [ topic.attrib[key] ]
 
             if len(task_table) > 0: 
-                output += tabulate( task_table, headers="keys", tablefmt="github" )
+                output += tabulate( task_table, headers="keys", tablefmt="html" if self._output == "html" else "github" )
                 output += "\n\n"
 
             # add attachment to body as image
             if '_attachment' in topic.attrib:
-                output += '{{< figure src="' + topic.attrib['_attachment']['ref'] + '"'
-                output += ' alt="' + topic.attrib['_attachment']['ref'] + '"'
-                output += ' caption="' + os.path.basename(topic.attrib['_attachment']['title'] ).split(".")[0]+ '"'
-                #if 'title' in topic.attrib['_attachment']:
-                #    output += ' title="' + topic.attrib['_attachment']['title'] + '"'
-                output += ' >}}\n\n'
+                if self._output == "html":
+                    output += '<img src="{}"'.format(topic.attrib['_attachment']['ref'])
+                    if 'title' in topic.attrib['_attachment']: output += 'title="{}"'.format( topic.attrib['_attachment']['title'] )
+                    output += ' />'
+                elif self._output == "md":
+                    output += '{{< figure src="' + topic.attrib['_attachment']['ref'] + '"'
+                    output += ' alt="' + topic.attrib['_attachment']['ref'] + '"'
+                    output += ' caption="' + os.path.basename(topic.attrib['_attachment']['title'] ).split(".")[0]+ '"'
+                    #if 'title' in topic.attrib['_attachment']:
+                    #    output += ' title="' + topic.attrib['_attachment']['title'] + '"'
+                    output += ' >}}'
+                output += "\n\n"
 
             # add link to body 
             if '_link' in topic.attrib:
                 icon = 'fa-solid fa-link' if topic.attrib['_link']['type'] == 'external' else 'fa-solid fa-link'                    
-                output += '{{< mybutton href="' + topic.attrib['_link']['ref'] + '"'
-                if 'target' in topic.attrib['_link']: output += ' target="{}"'.format(topic.attrib['_link']['target'])
-                if icon: output += ' icon="{}"'.format( icon )
-                output += ' >}}'
-                output += topic.attrib['_link']['title'] if 'title' in topic.attrib['_link'] else topic.attrib['_link']['ref']
-                output += '{{< /mybutton >}}\n\n'
+                if self._output == "html":
+                    output += '<a href="{}"'.format( topic.attrib['_link']['ref'])
+                    if 'target' in topic.attrib['_link']: output += ' target="{}"'.format(topic.attrib['_link']['target'])
+                    if icon: output += ' class="btn btn-default {}"'.format(icon)
+                    output += '>'
+                    if 'title' in topic.attrib['_link']: output += topic.attrib['_link']['title']
+                    output += '</a> '
+                elif self._output == "md":
+                    output += '{{< mybutton href="' + topic.attrib['_link']['ref'] + '"'
+                    if 'target' in topic.attrib['_link']: output += ' target="{}"'.format(topic.attrib['_link']['target'])
+                    #if icon: output += ' icon="{}"'.format( icon )
+                    output += ' >}}'
+                    output += topic.attrib['_link']['title'] if 'title' in topic.attrib['_link'] else topic.attrib['_link']['ref']
+                    output += '{{< /mybutton >}}'
+                output += '\n\n'
 
             # add childs
             if 'uuid' in topic.attrib:
@@ -594,52 +726,3 @@ themesDir = "../themes"
 
         return output
 
-# #################################################################################################################################
-# main
-# #################################################################################################################################################################################
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Transform iThoughts files into reST files for static site generators.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-
-    parser.add_argument(
-        dest='input', help='The input file to read or directory to parse')
-    parser.add_argument(
-        '-o', '--output', dest='output', default='content',
-        help='Output path')
-    parser.add_argument(
-        '--force', action='store_true', dest='force',
-        help='Force refresh of all iThoughtsX files')
-
-    args = parser.parse_args()
-
-    if os.path.exists(args.output):
-        try:
-            # shutil.rmtree(args.output)
-            pass
-        except OSError:
-            error = 'Unable to remove the output folder: ' + args.output
-            exit(error)
-
-    if not os.path.exists(args.output):
-        try:
-            os.makedirs(args.output)
-        except OSError:
-            error = 'Unable to create the output folder: ' + args.output
-            exit(error)
-           
-    itmz = ITMZ( source=args.input, site=args.output )
-    itmz._parse_source( args.force or False )
-
-
-    print( '''
-cd /workspace/itmz2hugo
-cd /workspace/itmz2hugo/site/hugo
-rm -fr content
-rm -fr /web
-hugo server --bind 0.0.0.0 --port 8888 --baseURL http://pharaoh.local --destination /web --cleanDestinationDir --renderToDisk --watch
-    ''')
-
-main()
