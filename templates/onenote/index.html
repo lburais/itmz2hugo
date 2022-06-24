@@ -2,19 +2,20 @@
 {% block mainheader %}OneNote{% endblock %}
 {% block content %}
     <ul class="list-group list-group-flush">
-      {% for x in result.value %}
+      {% for x in result %}
       <li class="list-group-item">
         <div class="row justify-content-between">
           <div class="col-4">
-            {{ x.id }}
+            {{ x.level }}
           </div>
           <div class="col-4">
-            {{ x.displayName }}
+            {{ x.title }}
           </div>
           <div class="col-4">
-            <a class="btn btn-primary btn-sm" href="/onenotepage?page_url={{ x.contentUrl }}" role="button">View as
+            {{ x.url }}
+            <a class="btn btn-primary btn-sm" href="/onenotepage?page_url={{ x.url }}" role="button">View as
               HTML</a>
-            <a class="btn btn-primary btn-sm" href="/onenotepagemd?page_url={{ x.contentUrl }}"
+            <a class="btn btn-primary btn-sm" href="/onenotepagemd?page_url={{ x.url }}"
               download="page_download.md" role="button">Download as Markdown</a>
             </div>
           </div>

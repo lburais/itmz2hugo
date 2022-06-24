@@ -10,16 +10,22 @@ Dependencies:
 * TBC
 
 Run:
+
+python3 -m venv venv
 source venv/bin/activate
+python3 -m pip install --upgrade pip
+pip3 install requests,flask,flask_session,msal,markdownify
 python3 onenote.py
 """
 # https://www.codeproject.com/Articles/5318952/Microsoft-Graph-Authentication-in-Python
 # https://portal.azure.com/#home
 
-import uuid
-import requests
 from flask import Flask, render_template, session, request, redirect, url_for, send_file
 from flask_session import Session
+
+import uuid
+import requests
+
 import msal
 from markdownify import markdownify as md
 import json
@@ -61,9 +67,9 @@ def onenote():
 
     token = get_token(onenote_config.SCOPE)
 
-    data = onenote_data( token['access_token'] )
+    onenote_data( token['access_token'] )
 
-    # return render_template('onenote/index.html', result=data)
+    #return render_template('onenote/index.html', result=json.dumps(datas))
     return render_template('index.html')
 
 
@@ -167,81 +173,103 @@ def logout():
 
 ###############################################################################
 
-def onenote_data( token, what='notebook', url='', level=0 ):
+def onenote_data( token, what='notebook', url='', level=0, output='', stack='nikola' ):
     run = True
+    datas = []
 
     if url == '':
         if what == 'notebook': url='https://graph.microsoft.com/v1.0/me/onenote/notebooks/0-34CFFB16AE39C6B3!335920'
-        #if what == 'notebook': url='https://graph.microsoft.com/v1.0/me/onenote/notebooks'
         elif what == 'section': url='https://graph.microsoft.com/v1.0/me/onenote/sections'
         elif what == 'group': url='https://graph.microsoft.com/v1.0/me/onenote/sectionGroups'
         elif what == 'page': url='https://graph.microsoft.com/v1.0/me/onenote/pages'
         else: run = False
 
     while run:
-        if what in ['content']:
+        onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
+
+        if 'error' in onenote_response:
             run = False
-            onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} )
-
-            pprint.pprint( onenote_response.text )
-
+            print( '{}[{}] error: {} {} elements'.format("   "*level, what, onenote_response['error']['code'], onenote_response['error']['message']) )
         else:
-            onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
+            if 'value' in onenote_response: onenote_elements = onenote_response['value']
+            else: onenote_elements = [ onenote_response ]
 
-            if 'error' in onenote_response:
-                run = False
-                print( '{}[{}] error: {} {} elements'.format("   "*level, what, onenote_response['error']['code'], onenote_response['error']['message']) )
+            for element in onenote_elements:
+                if 'contentUrl' in element:
+                    element['content'] = requests.get( element["self"] + "/$value", headers={'Authorization': 'Bearer ' + token} )
+
+                onenote_element(element, what, level)
+
+                if 'sectionsUrl' in element:
+                    onenote_data( token, 'section', element["sectionsUrl"], level+1 )
+
+                if 'sectionGroupsUrl' in element:
+                    onenote_data( token, 'group', element["sectionGroupsUrl"], level+1 )
+
+                if 'pagesUrl' in element:
+                    onenote_data( token, 'page', element["pagesUrl"] + '?pagelevel=true&orderby=order', level+1 )
+
+            if '@odata.nextLink' in onenote_response:
+                url = onenote_response['@odata.nextLink']
             else:
-                if 'value' in onenote_response: onenote_elements = onenote_response['value']
-                else: onenote_elements = [ onenote_response ]
+                run = False
 
-                for element in onenote_elements:
-                    if 'displayName' in element: data = element["displayName"]
-                    elif 'title' in element: data = element["title"]
-                    else: data = 'no info'
+###############################################################################
 
-                    print( '{}[{}] {}'.format(" "*4*(level + (element["level"] if 'level' in element else 0)), what, data) )
+#                              ONENOTE ELEMENT                                #
 
-                    if what in ['page']:
-                        indent = (len('[page]')+2+4*(level + (element["level"] if 'level' in element else 0)))
-                        print( '{} created:  {}'.format( " "*indent, element["createdDateTime"]) )
-                        print( '{} modified: {}'.format( " "*indent, element["lastModifiedDateTime"]) )
-                        pprint.pprint( element )
+###############################################################################
 
-                    if 'sectionsUrl' in element:
-                        onenote_data( token, 'section', element["sectionsUrl"], level+1 )
+def onenote_element( element, what, level, output='', stack='nikola' ):
+    content = {}
+    text = ''
 
-                    if 'sectionGroupsUrl' in element:
-                        onenote_data( token, 'group', element["sectionGroupsUrl"], level+1 )
+    content['what'] = what
+    content['level'] = level
 
-                    if 'pagesUrl' in element:
-                        onenote_data( token, 'page', element["pagesUrl"] + '?pagelevel=true&orderby=order', level+1 )
+    if 'id' in element: 
+        content['id'] = element['id']
+        tree = content['id'].split('!')
+        del tree[0]
+        content['parent'] = '!'.join(tree)
 
-                    if 'contentUrl' in element:
-                        #onenote_data( token, 'content', element["contentUrl"], level+1 )
-                        onenote_data( token, 'content', element["self"] + "/$value", level+1 )
+    content['hidetitle'] = False
+    if 'displayName' in element: content['title'] = element["displayName"]
+    elif 'title' in element: content['title'] = element["title"]
+    else: 
+        content['title'] = 'no title'
+        content['hidetitle'] = True
 
-                if '@odata.nextLink' in onenote_response:
-                    url = onenote_response['@odata.nextLink']
-                else:
-                    run = False
+    #content['slug']
+    if 'createdDateTime' in element: content['date'] = element["createdDateTime"]
+    # content['tags']
+    # content['status']
+    # content['has_math']
+    # content['category']
+    # content['guid']
+    # content['link']
+    # content['description']
+    # content['type']
+    # content['author']
+    # content['enclosure']
+    # content['data']
+    # content['filters']
+    # content['hyphenate']
+    # content['nocomments'] = False
+    # content['pretty_url']
+    # content['previewimage']
+    # content['template']
+    if 'lastModifiedDateTime' in element: content['updated'] = element["lastModifiedDateTime"]
+    # content['url_type']
 
+    if 'content' in element: content['content'] = element["content"].text
 
-            # if element in ['content']:
-
-            #     onenote_responses = requests.get(  # Use token to call downstream service
-            #         url,
-            #         headers={'Authorization': 'Bearer ' + token},
-            #     )  
-            #     # print( '{}'.format(onenote_responses.text) )
-
-            #     pass
-
-            # else:
-            #     onenote_responses = requests.get(  # Use token to call downstream service
-            #         url,
-            #         headers={'Authorization': 'Bearer ' + token},
-            #     ).json()  
+    print( '-'*250 )
+    print( '{}[{}] {}'.format(" "*4*content['level'], content['what'], content['title']) )
+    print( '-'*250 )
+    pprint.pprint( element )
+    print( '-'*250 )
+    pprint.pprint( content )
 
 ###############################################################################
 
