@@ -1,3 +1,18 @@
+"""
+Filename:    onenote.py
+
+- Author:      [Laurent Burais](mailto:lburais@cisco.com)
+- Release:
+- Date:
+
+Dependencies:
+
+* TBC
+
+Run:
+source venv/bin/activate
+python3 onenote.py
+"""
 # https://www.codeproject.com/Articles/5318952/Microsoft-Graph-Authentication-in-Python
 # https://portal.azure.com/#home
 
