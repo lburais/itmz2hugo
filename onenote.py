@@ -72,6 +72,7 @@ def onenote_process( token, what='notebook', url='' ):
         elif what == 'section': url='https://graph.microsoft.com/v1.0/me/onenote/sections'
         elif what == 'group': url='https://graph.microsoft.com/v1.0/me/onenote/sectionGroups'
         elif what == 'page': url='https://graph.microsoft.com/v1.0/me/onenote/pages'
+        elif what == 'resource': url='https://graph.microsoft.com/v1.0/me/onenote/resources'
         else: run = False
 
     while run:
@@ -88,7 +89,14 @@ def onenote_process( token, what='notebook', url='' ):
                 if 'contentUrl' in onenote_object:
                     onenote_object['content'] = requests.get( onenote_object["self"] + "/$value", headers={'Authorization': 'Bearer ' + token} )
 
-                elements = elements + [ onenote_element(onenote_object, what) ]
+                element = onenote_element(onenote_object, what)
+                if 'resources' in element:
+                    for resource in element['resources']:
+                        print( 'retrieving {}...'.format(resource['name']))
+                        data =  requests.get( resource['name'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
+                        pprint.pprint( data )
+
+                elements = elements + [ element ]
 
                 if 'sectionsUrl' in onenote_object:
                     elements = elements + onenote_process( token, 'section', onenote_object["sectionsUrl"] )
@@ -153,30 +161,89 @@ def onenote_element( element, what ):
     # content['template']
     # content['url_type']
 
+    resources = []
+
     if 'content' in element: 
+
         soup = BeautifulSoup(element['content'].text, features="html.parser")
 
-        # remove absolute positionning
+        # absolute
+        # --------
+        # <body data-absolute-enabled="true" style="font-family:Calibri;font-size:11pt">
+        # <div style="position:absolute;left:48px;top:115px;width:576px">
 
         for tag in soup():
             for attribute in ["data-absolute-enabled"]:
                 del tag[attribute]
-        tags = soup.find_all( style=re.compile("position:absolute"))
+
+        tags = soup.find_all( 'div', style=re.compile("position:absolute"))
         for tag in tags:
             if (tag["style"].find("position:absolute")  != -1):
                 del tag["style"]
+
+        # objects
+        # -------
+        # <object 
+        # data="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-8a9f130df6d87945a8099be6b6d2be82!1-34CFFB16AE39C6B3!335924/$value" 
+        # data-attachment="SEJOUR BURAIS 007-IND-M-22.pdf" 
+        # type="application/pdf">
+        # </object>
+
+        tags = soup.findAll("object", {"data" : re.compile(r".*")})
+        for tag in tags: resources += [ tag['data'] ]
+
+        # images
+        # ------
+        # <img 
+        # alt="bla bla bla"
+        # data-fullres-src="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value" 
+        # data-fullres-src-type="image/png" 
+        # data-id="2f8fe6dc-10b8-c046-ba5b-c6ccf2c8884a" 
+        # data-index="2" 
+        # data-options="printout" 
+        # data-src-type="image/png" 
+        # height="842" 
+        # src="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value" 
+        # width="595"
+        # />
+
+        tags = soup.findAll("img", {"alt" : re.compile(r".*")})
+        for tag in tags:
+            del tag["alt"]
+
+        tags = soup.findAll("img", {"data-fullres-src" : re.compile(r".*")})
+        for tag in tags: resources += [ tag['data-fullres-src'] ]
+
+        tags = soup.findAll("img", {"src" : re.compile(r".*")})
+        for tag in tags: resources += [ tag['src'] ]
+
+        tags = soup.findAll("img", {"height" : re.compile(r".*")})
+        for tag in tags:
+            tag['height'] = 600
+            del tag['height']
+        tags = soup.findAll("img", {"width" : re.compile(r".*")})
+        for tag in tags:
+            tag['width'] = 600
+
         body = soup.find("body")
         content['content'] = str( body )
 
-        # replace resources
+    if len( resources ) > 0: 
+        # remove duplicates
+        resources = list(dict.fromkeys(resources))
 
-        # resize images
+        content['resources'] = []
+        for resource in resources:
+            content['resources'] += [ {'name': resource, 'data': None }]
 
     print( '[{0:<8}] {1}'.format(content['what'], content['title']) )
     print( '-'*250 )
     pprint.pprint( element )
     print( '-'*250 )
-    pprint.pprint( content )
+    tmp = dict(content)
+    if 'content' in tmp: tmp['content'] = "scrubbed content"
+    pprint.pprint( tmp )
+    del tmp
     print( '-'*250 )
 
     return content
