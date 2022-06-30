@@ -21,6 +21,7 @@ python3 onenote.py
 import json
 import requests
 import re
+import os
 
 from bs4 import BeautifulSoup
 
@@ -68,7 +69,7 @@ def onenote_process( token, what='notebook', url='' ):
     elements = []
 
     if url == '':
-        if what == 'notebook': url='https://graph.microsoft.com/v1.0/me/onenote/notebooks/0-34CFFB16AE39C6B3!335920'
+        if what == 'notebook': url='https://graph.microsoft.com/v1.0/me/onenote/notebooks/0-34CFFB16AE39C6B3!335975'
         elif what == 'section': url='https://graph.microsoft.com/v1.0/me/onenote/sections'
         elif what == 'group': url='https://graph.microsoft.com/v1.0/me/onenote/sectionGroups'
         elif what == 'page': url='https://graph.microsoft.com/v1.0/me/onenote/pages'
@@ -90,11 +91,24 @@ def onenote_process( token, what='notebook', url='' ):
                     onenote_object['content'] = requests.get( onenote_object["self"] + "/$value", headers={'Authorization': 'Bearer ' + token} )
 
                 element = onenote_element(onenote_object, what)
+
+                # process resources
                 if 'resources' in element:
                     for resource in element['resources']:
-                        print( 'retrieving {}...'.format(resource['name']))
-                        data =  requests.get( resource['name'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
-                        pprint.pprint( data )
+                        print( 'retrieving {}...'.format(resource['url']))
+                        data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
+
+                        out_file = os.path.join( os.path.dirname(__file__), 'onenote_tmp', resource['name'] )
+                        out_dir = os.path.dirname(out_file)
+
+                        if not os.path.isdir(out_dir):
+                            os.makedirs(out_dir)
+
+                        with open(out_file, 'wb') as fs:
+                            fs.write(data.content) 
+
+                        resource['data'] = out_file
+                        print( '{}: {} bytes'.format( out_file, os.path.getsize(out_file) ) )
 
                 elements = elements + [ element ]
 
@@ -125,9 +139,18 @@ def onenote_element( element, what ):
 
     if 'id' in element: 
         content['id'] = element['id']
-        tree = content['id'].split('!')
-        del tree[0]
-        content['parent'] = '!'.join(tree)
+
+    if 'parentNotebook' in element: 
+        if element['parentNotebook'] and 'id' in element['parentNotebook']: 
+            content['parent'] = element['parentNotebook']['id']
+
+    if 'parentSectionGroup' in element: 
+        if element['parentSectionGroup'] and 'id' in element['parentSectionGroup']: 
+            content['parent'] = element['parentSectionGroup']['id']
+
+    if 'parentSection' in element: 
+        if element['parentSection'] and 'id' in element['parentSection']: 
+            content['parent'] = element['parentSection']['id']
 
     if 'order' in element: 
         content['order'] = element['order']
@@ -165,6 +188,8 @@ def onenote_element( element, what ):
 
     if 'content' in element: 
 
+        # pprint.pprint( element['content'].text )
+
         soup = BeautifulSoup(element['content'].text, features="html.parser")
 
         # absolute
@@ -172,14 +197,15 @@ def onenote_element( element, what ):
         # <body data-absolute-enabled="true" style="font-family:Calibri;font-size:11pt">
         # <div style="position:absolute;left:48px;top:115px;width:576px">
 
-        for tag in soup():
-            for attribute in ["data-absolute-enabled"]:
-                del tag[attribute]
+        for tag in soup.select("body[data-absolute-enabled]"):
+            del tag["data-absolute-enabled"]
 
-        tags = soup.find_all( 'div', style=re.compile("position:absolute"))
+        tags = soup.find_all( 'div', style=re.compile("position:absolute") )
         for tag in tags:
-            if (tag["style"].find("position:absolute")  != -1):
+            if (tag["style"].find("position:absolute") != -1):
                 del tag["style"]
+
+        content['resources'] = []
 
         # objects
         # -------
@@ -189,8 +215,9 @@ def onenote_element( element, what ):
         # type="application/pdf">
         # </object>
 
-        tags = soup.findAll("object", {"data" : re.compile(r".*")})
-        for tag in tags: resources += [ tag['data'] ]
+        for tag in soup.select("object[data-attachment]"): 
+            name = re.search( r'^.*resources/(.*?)!', tag['data']).group(1) + '_' + tag['data-attachment']
+            content['resources'] += [ { 'name': name, 'url': tag['data'], 'data': None, 'type': 'object' } ]
 
         # images
         # ------
@@ -207,34 +234,30 @@ def onenote_element( element, what ):
         # width="595"
         # />
 
-        tags = soup.findAll("img", {"alt" : re.compile(r".*")})
-        for tag in tags:
-            del tag["alt"]
+        for tag in soup.select('img[src]'):
+            del tag['alt']
 
-        tags = soup.findAll("img", {"data-fullres-src" : re.compile(r".*")})
-        for tag in tags: resources += [ tag['data-fullres-src'] ]
+            name = re.search( r'^.*resources/(.*?)!', tag['src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
+            content['resources'] += [ { 'name': name, 'url': tag['src'], 'data': None, 'type': 'image' } ]
 
-        tags = soup.findAll("img", {"src" : re.compile(r".*")})
-        for tag in tags: resources += [ tag['src'] ]
+            if tag['data-fullres-src'] == tag['src']:
+                name = re.search( r'^.*resources/(.*?)!', tag['src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
+            else:
+                name = re.search( r'^.*resources/(.*?)!', tag['data-fullres-src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
+            content['resources'] += [ { 'name': name, 'url': tag['data-fullres-src'], 'data': None, 'type': 'fullres' } ]
 
-        tags = soup.findAll("img", {"height" : re.compile(r".*")})
-        for tag in tags:
-            tag['height'] = 600
+
             del tag['height']
-        tags = soup.findAll("img", {"width" : re.compile(r".*")})
-        for tag in tags:
+
             tag['width'] = 600
 
-        body = soup.find("body")
-        content['content'] = str( body )
+        content['content'] = str( soup.find("body") )
 
-    if len( resources ) > 0: 
-        # remove duplicates
-        resources = list(dict.fromkeys(resources))
-
-        content['resources'] = []
-        for resource in resources:
-            content['resources'] += [ {'name': resource, 'data': None }]
+        if len( content['resources'] ) > 0: 
+            # remove duplicates
+            pass
+        else:
+            del content['resources']
 
     print( '[{0:<8}] {1}'.format(content['what'], content['title']) )
     print( '-'*250 )
