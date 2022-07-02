@@ -1,5 +1,5 @@
 import onenote_config
-from onenote import onenote_process
+from onenote import onenote_all
 from jamstack_write import jamstack_write
 
 from flask import Flask, render_template, session, request, redirect, url_for
@@ -27,19 +27,30 @@ class onenote_flask:
         Session(app)
         app.debug = True
 
-        @app.route("/")
-        def index():
+        def action( what = '' ):
             if not session.get("user"):
                 return redirect(url_for("login"))
 
-            token = get_token(onenote_config.SCOPE)
+            if what in ['load', 'get']:
+                token = get_token(onenote_config.SCOPE)
 
-            onenote_objects = onenote_process( token['access_token'] )
+                onenote_objects = onenote_all( token['access_token'], True if what == 'get' else False )
 
-            jamstack_write( elements=onenote_objects, output=args.output )
+                jamstack_write( elements=onenote_objects, output=args.output )
 
-            #return render_template('onenote/index.html', result=json.dumps(datas))
             return render_template('index.html')
+
+        @app.route("/")
+        def index():
+            return action()
+
+        @app.route("/get")
+        def get():
+            return action('get')
+
+        @app.route("/load")
+        def load():
+            return action('load')
 
         ###############################################################################
 

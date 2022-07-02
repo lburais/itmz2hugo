@@ -35,12 +35,23 @@ def _get_body( element ):
     else: output = '<body></body>'
 
     soup = BeautifulSoup(output, features="html.parser")
+
+    # add child posts
+    if element['what'] in ['notebook', 'section', 'group']: 
+        if 'slug' in element:
+            tag = soup.new_tag('div')
+            tag.string = "{{% post-list tags=" + "{}".format(element['slug']) + " %}}{{% /post-list %}}"
+            soup.body.append(tag)
+
+    # add struture
     tag = soup.new_tag('code')
     tmp = dict(element)
     if 'content' in tmp: del tmp['content']
     tag.string = pprint.pformat(tmp)
     del tmp
     soup.body.append(tag)
+
+    # done
     output = str( soup )
 
     return output
@@ -96,7 +107,7 @@ def jamstack_write( output='site/nikola', elements=[], stack='nikola', generate=
                     os.makedirs(out_dir)
 
                 try:
-                    shutil.move(resource['data'], out_file)
+                    shutil.copy(resource['data'], out_file)
                 except:
                     pass
 
@@ -116,10 +127,14 @@ def jamstack_write( output='site/nikola', elements=[], stack='nikola', generate=
         text += _get_body( element )
 
         if element['what'] in ['page']: folder = 'posts'
-        elif element['what'] in ['notebook', 'section', 'group']: folder = 'pages'
+        elif element['what'] in ['notebook', 'section', 'group']: 
+            folder = 'pages'
         else: folder = 'usused'
 
-        out_file = os.path.join( output, folder, element['slug'] + '.html' )
+        if 'tags' in element:
+            out_file = os.path.join( output, folder, os.path.sep.join(element['tags']), element['slug'] + '.html' )
+        else:
+            out_file = os.path.join( output, folder, element['slug'] + '.html' )
         out_dir = os.path.dirname(out_file)
 
         print( '='*250 )

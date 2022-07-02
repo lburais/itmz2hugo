@@ -22,6 +22,7 @@ import json
 import requests
 import re
 import os
+import time
 
 from bs4 import BeautifulSoup
 
@@ -61,15 +62,58 @@ def slugify( value ):
     return value  
 
 # #################################################################################################################################
+# ONENOTE ALL
+# #################################################################################################################################
+
+def onenote_all( token, force=False ):
+
+    elements = []
+
+    out_file = os.path.join( os.path.dirname(__file__), 'onenote', 'onenote.json' )
+    
+    # load from json
+
+    if not force and os.path.isfile(out_file):
+        try:
+            print("LOAD")
+            out_fp = open(out_file, "r")
+            elements = json.load( out_fp )
+            out_fp.close()
+        except:
+            raise        
+    
+    if len(elements) == 0:
+        print("GET")
+        elements = onenote_process( token=token, what='notebook', url='' )
+
+    # dump as json
+
+    out_file = os.path.join( os.path.dirname(__file__), 'onenote', 'onenote.json' )
+    out_dir = os.path.dirname(out_file)
+
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
+
+    try:
+        out_fp = open(out_file, "w")
+        json.dump( elements, out_fp, indent=2 )
+        out_fp.close()
+    except:
+        pass
+
+    return elements
+
+# #################################################################################################################################
 # ONENOTE PROCESS
 # #################################################################################################################################
 
-def onenote_process( token, what='notebook', url='' ):
+def onenote_process( token, what='notebook', url='', force=False ):
     run = True
     elements = []
 
     if url == '':
-        if what == 'notebook': url='https://graph.microsoft.com/v1.0/me/onenote/notebooks/0-34CFFB16AE39C6B3!335975'
+        #if what == 'notebook': url='https://graph.microsoft.com/v1.0/me/onenote/notebooks/0-34CFFB16AE39C6B3!335975'
+        if what == 'notebook': url='https://graph.microsoft.com/v1.0/me/onenote/notebooks'
         elif what == 'section': url='https://graph.microsoft.com/v1.0/me/onenote/sections'
         elif what == 'group': url='https://graph.microsoft.com/v1.0/me/onenote/sectionGroups'
         elif what == 'page': url='https://graph.microsoft.com/v1.0/me/onenote/pages'
@@ -77,11 +121,26 @@ def onenote_process( token, what='notebook', url='' ):
         else: run = False
 
     while run:
-        onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
+        retry = 2
+
+        while retry > 0:
+            onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
+
+            if 'error' in onenote_response:
+                print( '[{0:<8}] error: {1} - {2}'.format(what, onenote_response['error']['code'], onenote_response['error']['message']) )
+                if onenote_response['error']['code'] == "20166":
+                    print( "... sleep ...") 
+                    time.sleep( 60.0 )
+                    retry -= 1
+                else:
+                    retry = 0
+                    break
+            else:
+                retry = 0
+                break
 
         if 'error' in onenote_response:
             run = False
-            print( '[{0:<8}] error: {1} {2}'.format(what, onenote_response['error']['code'], onenote_response['error']['message']) )
         else:
             if 'value' in onenote_response: onenote_objects = onenote_response['value']
             else: onenote_objects = [ onenote_response ]
@@ -96,19 +155,22 @@ def onenote_process( token, what='notebook', url='' ):
                 if 'resources' in element:
                     for resource in element['resources']:
                         print( 'retrieving {}...'.format(resource['url']))
-                        data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
-
-                        out_file = os.path.join( os.path.dirname(__file__), 'onenote_tmp', resource['name'] )
+                        out_file = os.path.join( os.path.dirname(__file__), 'onenote', resource['name'] )
                         out_dir = os.path.dirname(out_file)
 
                         if not os.path.isdir(out_dir):
                             os.makedirs(out_dir)
 
-                        with open(out_file, 'wb') as fs:
-                            fs.write(data.content) 
+                        if force or not os.path.isfile(out_file):
+                            print( '  > loading {}...'.format(resource['url']))
+                            data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
 
-                        resource['data'] = out_file
-                        print( '{}: {} bytes'.format( out_file, os.path.getsize(out_file) ) )
+                            with open(out_file, 'wb') as fs:
+                                fs.write(data.content) 
+
+                            resource['data'] = out_file
+
+                        print( '  > {}: {} bytes'.format( out_file, os.path.getsize(out_file) ) )
 
                 elements = elements + [ element ]
 

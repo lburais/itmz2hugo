@@ -44,6 +44,10 @@ if __name__ == "__main__":
         '--md', action='store_true', dest='md',
         help='Use markdown files')
 
+    parser.add_argument(
+        '--force', action='store_true', dest='force',
+        help='Force refresh')
+
     args = parser.parse_args()
 
     if args.hugo: args.stack='hugo'
