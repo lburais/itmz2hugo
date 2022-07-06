@@ -1,6 +1,6 @@
 import onenote_config
-from onenote import onenote_all
-from jamstack_write import jamstack_write
+from onenote import *
+from jamstack_write import *
 
 from flask import Flask, render_template, session, request, redirect, url_for
 from flask_session import Session
@@ -17,6 +17,7 @@ import platform
 #
 # #################################################################################################################################
 # Code based on https://github.com/Azure-Samples/ms-identity-python-webapp
+# and https://github.com/datamel/msal-flask-graph
 
 class onenote_flask:
 
@@ -27,30 +28,35 @@ class onenote_flask:
         Session(app)
         app.debug = True
 
+        onenote = ONENOTE()
+
         def action( what = '' ):
             if not session.get("user"):
                 return redirect(url_for("login"))
 
-            if what in ['load', 'get']:
-                token = get_token(onenote_config.SCOPE)
+            token = get_token(onenote_config.SCOPE)
 
-                onenote_objects = onenote_all( token['access_token'], True if what == 'get' else False )
-
-                jamstack_write( elements=onenote_objects, output=args.output )
-
-            return render_template('index.html')
+            if what in ['clear']:
+                onenote_clear()
+                jamstack_clear()
+            elif what in ['getall']:
+                onenote_objects = onenote._get_all( token['access_token'] )
+                #onenote_objects = onenote( token['access_token'], url )
+                #jamstack_write( elements=onenote_objects, output=args.output )
 
         @app.route("/")
         def index():
-            return action()
+            return render_template('index.html')
 
-        @app.route("/get")
-        def get():
-            return action('get')
+        @app.route("/clear")
+        def clear():
+            action( 'clear')
+            return render_template('index.html')
 
-        @app.route("/load")
-        def load():
-            return action('load')
+        @app.route("/getall")
+        def getall():
+            action( 'getall')
+            return render_template('index.html')
 
         ###############################################################################
 

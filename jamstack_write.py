@@ -6,6 +6,141 @@ import pprint
 from bs4 import BeautifulSoup
 
 # #############################################################################################################################
+# Structure
+# #############################################################################################################################
+# iThoughts structure
+# -------------------
+#   [src]
+#   ├── [file1].itmz
+#   |   ├── mapdata.xml
+#   |   |   ├── tag
+#   |   |   ├── iIhoughts attribs
+#   |   |   |   ├── modified
+#   |   |   |   └── author
+#   |   |   ├── topic attribs
+#   |   |   |   ├── uuid
+#   |   |   |   ├── text
+#   |   |   |   ├── link
+#   |   |   |   ├── created
+#   |   |   |   ├── modified
+#   |   |   |   ├── note
+#   |   |   |   ├── callout
+#   |   |   |   ├── floating
+#   |   |   |   ├── att-name
+#   |   |   |   ├── att-id
+#   |   |   |   ├── task-start
+#   |   |   |   ├── task-due
+#   |   |   |   ├── cost
+#   |   |   |   ├── cost-type
+#   |   |   |   ├── task-effort
+#   |   |   |   ├── task-priority
+#   |   |   |   ├── task-progress
+#   |   |   |   ├── resources
+#   |   |   |   ├── icon1
+#   |   |   |   ├── icon2
+#   |   |   |   ├── position
+#   |   |   |   ├── color
+#   |   |   |   ├── summary1
+#   |   |   |   └── summary2
+#   |   |   ├── relationship
+#   |   |   |   ├── end1-uui
+#   |   |   |   └── end2-uui
+#   |   |   └── group
+#   |   |       ├── member1
+#   |   |       └── member2
+#   |   └── assets
+#   |       ├── [uuid1]
+#   |       |   ├── [attachment1]
+#   |       |   └── [attachment1]
+#   |       └── [uuid2]
+#   |           └── [attachment3]
+#   ├── [file2].itmz
+#   |   ├── mapdata.xml
+#   |   └── assets
+#   |       └── [uuid3]
+#   |           └── [attachment4]
+#   └── [folder]
+#       ├── [file3].itmz
+#       |   ├── mapdata.xml
+#       |   └── assets
+#       |       └── [uuid4]
+#       |           └── [attachment5]
+#       └── [folder]
+#           └── [file4].itmz
+#
+# Hugo structure
+# --------------
+#   content
+#   ├── _index.html
+#   ├── [filename1] == page1 bundle for itmz1
+#   |   ├── _index.html == filename1 page
+#   |   |       external --> url
+#   |   |       internal in --> {{< ref "#[uuid]" >}}
+#   |   |       internal out --> {{< ref "/[filename2]/_index#[uuid]" >}}
+#   |   ├── attachments
+#   |   |   └── [attachment1] 
+#   |   |           --> {{< ref "/[filename1]/attachments/[attachment1]" >}}
+#   |   |           --> {{< ref "attachments/[attachment1]" >}}
+#   |   └── [filename2] --> page2 bundle for itmz2
+#   |       ├── _index.html == filename2 page
+#   |       └── attachments
+#   |           └── [attachment2] 
+#   |                   --> {{< ref "/[filename1]/[filename2]/attachments/[attachment2]" >}}
+#   |                   --> {{< ref "attachments/[attachment2]" >}}
+#   ├── layouts
+#   |   └── shortcodes
+#   |       └── [shortcodes].html
+#   └── config.toml
+#
+# Pelican structure
+# -----------------
+#   content
+#   ├── pages
+#   |   ├── [filename1].html
+#   |   |       external --> url
+#   |   |       internal in --> {filename}#[uuid]
+#   |   |       internal out --> {filename}[filenamex].html#[ref]
+#   |   └── [filename2].html --> {filename}[filename2].html
+#   ├── attachments
+#   |   ├── [filename1]
+#   |   |   └── [attachment1] --> {static}/attachments/[filename1]/[attachment1]
+#   |   └── [filename2]
+#   |       └── [attachment2] --> {static}/attachments/[filename2]/[attachment2]
+#   └── pelican.conf.py
+#           PATH = 'content'
+#           PAGE_PATHS = ['pages']
+#           ARTICLE_PATHS = ['articles']
+#           STATIC_PATHS = ['attachments']
+#
+# Nikola structure
+# -----------------
+#   content
+#   ├── pages
+#   |   ├── [filename1].html
+#   |   |       external --> url
+#   |   |       internal in --> {filename}#[uuid]
+#   |   |       internal out --> {filename}[filename].html#[ref]
+#   |   └── [filename2].html --> {filename}[filename2].html
+#   ├── posts
+#   |   ├── [filename3].html
+#   |   |       external --> url
+#   |   |       internal in --> {filename}#[uuid]
+#   |   |       internal out --> {filename}[filenamex].html#[ref]
+#   |   └── [filename4].html --> {filename}[filename2].html
+#   ├── files
+#   |   └── objects
+#   |       └── [tag 1]
+#   |           ├── [object1] --> /objects/[tag1]/[object1]
+#   |           └── [tag 2]
+#   |               └── [object2] --> /objects/[tag1]/[tag2]/[object2]
+#   └── conf.py
+#           PATH = 'content'
+#           PAGE_PATHS = ['pages']
+#           ARTICLE_PATHS = ['articles']
+#           STATIC_PATHS = ['attachments']
+
+
+# #############################################################################################################################
 # _get_header
 # #############################################################################################################################
 
@@ -57,6 +192,23 @@ def _get_body( element ):
     return output
 
 # #############################################################################################################################
+# jamstack_clear
+# #############################################################################################################################
+
+def jamstack_clear( output='site/nikola', stack='nikola' ):
+    try:
+        if stack in ['nikola']:
+            shutil.rmtree(os.path.join( 'site/nikola', 'images'))
+            shutil.rmtree(os.path.join( 'site/nikola', 'onenote', 'objects'))
+            shutil.rmtree(os.path.join( 'site/nikola', 'posts'))
+            shutil.rmtree(os.path.join( 'site/nikola', 'pages'))
+        else:
+            return
+
+    except:
+        pass
+
+# #############################################################################################################################
 # jamstack_write
 # #############################################################################################################################
 
@@ -64,86 +216,48 @@ def _get_body( element ):
 
 def jamstack_write( output='site/nikola', elements=[], stack='nikola', generate='html' ):
 
-    # merge elements
+    print( '-'*250 )
+    print( 'JAMSTACK WRITE' )
+    print( '-'*250 )
+    pprint.pprint( elements )
+    print( '-'*250 )
 
-    for element in reversed(elements):
-        # is there a child with same title
-        for item in reversed(elements):
-            if ( item['what'] in ['page'] ) and ('parent' in item) and (item['parent'] == element['id']) and (item['title'] == element['title']):
-                print( '*'*250 )
-                print('> ' + element['title'])
+    # manage stacks
 
-                element['content'] = item['content']
-                elements.remove(item)
-                break
-
-    # add tags
-
-    for element in elements:
-
-        element['tags'] =  []
-        for item in elements:
-            if ('parent' in element) and (item['id'] == element['parent']):
-                if 'tags' in item: element['tags'] += item['tags']
-                if (item['what'] in ['notebook', 'group']):
-                    element['tags'] += [ item['slug'] ]
-                break
-
-    # process resources
-
-    for element in elements:
-
-        if 'resources' in element:
-            for resource in element['resources']:
-                if resource['type'] in ['image', 'fullres']: folder = 'images'
-                else: folder = os.path.join('files', 'objects')
-
-                out_file = os.path.join( output, folder, resource['name'] )
-                out_dir = os.path.dirname(out_file)
-
-                print('  - ' + out_file)
-
-                if not os.path.isdir(out_dir):
-                    os.makedirs(out_dir)
-
-                try:
-                    shutil.copy(resource['data'], out_file)
-                except:
-                    pass
-
-                if 'content' in element: 
-                    if resource['type'] in ['image', 'fullres']: folder = 'images'
-                    else: folder = 'objects'
-
-                    url = resource['url']
-                    path = os.path.join( os.path.sep, folder, resource['name'] )
-                    element['content'] = element['content'].replace(url, path)
+    if stack in ['nikola']:
+        output = 'site/nikola'
+        folder_images = 'images'
+        folder_objects = 'objects'
+        folder_resources = os.path.join('files', folder_objects)
+    elif stack in ['pelican']:
+        output = 'site/pelican'
+        folder_images = 'images'
+        folder_objects = 'objects'
+        folder_resources = os.path.join('files', folder_objects)
+    else:
+        return
 
     # process HTML
 
     for element in elements:
 
+        # place for html
+
+        if element['what'] in ['page']: folder_html = 'posts'
+        elif element['what'] in ['notebook', 'section', 'group']: 
+            folder_html = 'pages'
+        else: folder_html = 'usused'
+        folder_path = os.path.sep.join(element['path']) if 'path' in element else ''
+
+        # get html
         text = _get_header( element )
         text += _get_body( element )
 
-        if element['what'] in ['page']: folder = 'posts'
-        elif element['what'] in ['notebook', 'section', 'group']: 
-            folder = 'pages'
-        else: folder = 'usused'
-
-        if 'tags' in element:
-            out_file = os.path.join( output, folder, os.path.sep.join(element['tags']), element['slug'] + '.html' )
-        else:
-            out_file = os.path.join( output, folder, element['slug'] + '.html' )
+        # write html 
+        out_file = os.path.join( output, folder_html, folder_path, element['slug'] + '.html' )
         out_dir = os.path.dirname(out_file)
 
-        print( '='*250 )
         print('> ' + out_file)
-        print( '='*250 )
-        tmp = dict(element)
-        #if 'content' in tmp: del tmp['content']
-        pprint.pprint(tmp)
-        del tmp
 
         if not os.path.isdir(out_dir):
             os.makedirs(out_dir)

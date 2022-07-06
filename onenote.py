@@ -15,7 +15,7 @@ python3 -m venv venv
 source venv/bin/activate
 python3 -m pip install --upgrade pip
 pip3 install requests,flask,flask_session,msal,markdownify
-python3 onenote.py
+python3 jamstack.py --input onenote --output site/nikola --nikola --html
 """
 
 import json
@@ -23,14 +23,54 @@ import requests
 import re
 import os
 import time
-
-from bs4 import BeautifulSoup
-
+import shutil
 import pprint
+
+from datetime import datetime as dt
+from bs4 import BeautifulSoup
+from tabulate import tabulate
+
+# pip3 install pandas
+import pandas as pd
+
+# pip3 install XlsxWriter
+import xlsxwriter
 
 # #################################################################################################################################
 # GLOBAL VARIABLES
 # #################################################################################################################################
+
+DEBUG = True
+
+def _print( text, line=False, prefix='', title='' ):
+    if DEBUG:
+        if line:
+            if title == '':
+                print( "-"*250 )
+            else:
+                print( "= {} {}".format(title, "="*(250-len(title)-3)) )
+        if text != '':
+            print('{}{}{}'.format(prefix, '' if prefix == '' else ' ', text))
+
+class ONENOTE_ELEMENT:
+    def __init__(self):
+        self.id = None
+        self.self = None
+        self.parent = None
+        self.order = None
+        self.title = None
+        self.created = None
+        self.modified = None
+        self.content = None
+        self.tags = None
+        self.path = None
+        self.what = None
+        self.slug = None
+        self.author = None
+        self.resources = None
+
+    def dict(self):
+        return vars()
 
 # #################################################################################################################################
 # INTERNAL FUNCTIONS
@@ -62,29 +102,196 @@ def slugify( value ):
     return value  
 
 # #################################################################################################################################
-# ONENOTE ALL
+# ONENOTE
 # #################################################################################################################################
 
-def onenote_all( token, force=False ):
+class ONENOTE:
 
-    elements = []
+    onenote_elements = None
+    token = None
 
-    out_file = os.path.join( os.path.dirname(__file__), 'onenote', 'onenote.json' )
-    
-    # load from json
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # __init__
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    if not force and os.path.isfile(out_file):
+    def __init__( self ): 
+        pass
+
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # _get_all
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    def _get_all( self, token ):
+        _print( '', line=True, title='GET ALL')
+
+        self.token = token
+
+        # get elements
+        self.onenote_elements = self._get(self.token, 'notebook')
+        self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'group') ], ignore_index=True )
+        self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'section') ], ignore_index=True )
+        self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'page') ], ignore_index=True )
+
+        _print( 'Nb elements = {}'.format(len(self.onenote_elements)) )
+
+        # get content
+        _print( '', line=True, title='TWEAK')
+
+        cond = ~self.onenote_elements['title'].isna()
+        cond &= self.onenote_elements['displayName'].isna()
+        self.onenote_elements.loc[cond, 'displayName'] = self.onenote_elements['title']
+        
+        # get content
+        _print( '', line=True, title='GET CONTENT')
+
+        _print( 'Columns: {}'.format(self.onenote_elements.columns.to_list()))
+
+        def _get_content( row ):
+            return requests.get( row['contentUrl'].replace( "content", "$value"), headers={'Authorization': 'Bearer ' + self.token} ).text
+
+        self.onenote_elements['content'] = None
+        cond = ~self.onenote_elements['contentUrl'].isna()
+        self.onenote_elements.loc[cond, 'content'] = self.onenote_elements[cond].apply(_get_content, axis='columns')
+
+        # drop columns
+        _print( '', line=True, title='DROP COLUMNS')
+
+        #   *Url*
+        #   *user.id
+        #   *odata.context
+        #   parent*.self
+        #   title
+        drop_list = []
+        for key in self.onenote_elements.columns.to_list():
+            if re.search( r'Url', key): drop_list += [ key ]
+            elif re.search( r'user.id', key): drop_list += [ key ]
+            elif re.search( r'odata.context', key): drop_list += [ key ]
+            elif re.search( r'parent.*.self', key): drop_list += [ key ]
+            elif re.search( r'title', key): drop_list += [ key ]
+        _print( 'Drop list: {}'.format(drop_list))
+
+        self.onenote_elements.drop( columns=drop_list, inplace=True )
+
+        # save excel
+        _print( '', line=True, title='SAVE EXCEL')
         try:
-            print("LOAD")
-            out_fp = open(out_file, "r")
-            elements = json.load( out_fp )
-            out_fp.close()
+            out_file = os.path.join( os.path.dirname(__file__), 'onenote', 'onenote.xlsx' )
+            out_dir = os.path.dirname(out_file)
+            if not os.path.isdir(out_dir):
+                os.makedirs(out_dir)
+
+            writer = pd.ExcelWriter(out_file, engine='xlsxwriter')
+            workbook  = writer.book
+            self.onenote_elements.to_excel( writer, index=False, na_rep='')
+            writer.close()
+
         except:
-            raise        
-    
-    if len(elements) == 0:
-        print("GET")
-        elements = onenote_process( token=token, what='notebook', url='' )
+            _print( "Something went wrong with file {}.".format(out_file) )        
+
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # _get
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    def _get( self, token, what ):
+        elements = pd.DataFrame()
+        run = True
+
+        if (what == 'notebook'): url='https://graph.microsoft.com/v1.0/me/onenote/notebooks'
+        elif (what == 'group'): url='https://graph.microsoft.com/v1.0/me/onenote/sectionGroups'
+        elif (what == 'section'): url='https://graph.microsoft.com/v1.0/me/onenote/sections'
+        elif (what == 'page'): url='https://graph.microsoft.com/v1.0/me/onenote/pages'
+        else: run = False
+
+        while run:
+            _print( '> {}'.format( url) )
+
+            onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
+
+            if 'error' in onenote_response:
+                _print( '[{0:<8}] error: {1} - {2}'.format(what, onenote_response['error']['code'], onenote_response['error']['message']) )
+                run = False
+            else:
+                if 'value' not in onenote_response: onenote_objects = { 'value': [ onenote_response ] }
+                else: onenote_objects = onenote_response
+
+                onenote_elements = pd.json_normalize(onenote_objects['value'])
+
+                if len(elements) >0 : elements = pd.concat( [ elements, onenote_elements ], ignore_index=True )
+                else: elements = onenote_elements.copy()
+
+                del onenote_elements
+
+                if '@odata.nextLink' in onenote_response:
+                    url = onenote_response['@odata.nextLink']
+                else:
+                    run = False
+
+        _print( '{}: {} elements loaded'.format( what, len(elements) ) )
+
+        return elements
+
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # _get
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    def _get_content( self, token, url ):
+
+        return requests.get( url + "/$value", headers={'Authorization': 'Bearer ' + token} )
+
+def onenote( token, url ):
+
+    # get from OneNote
+
+    _print( '', line=True, title='ONENOTE{}'.format(': ' if url != '' else '', url.upper() if url != '' else ''))
+    elements = onenote_process( token=token, what='notebook', url=url )
+
+    print( tabulate( elements, headers='keys', tablefmt='fancy_grid', showindex=False, floatfmt=".1f" ))
+
+    return elements
+
+    # reorder elements
+
+    _print( '', line=True, title='REORDER ELEMENTS')
+
+    # merge elements
+
+    _print( '', line=True, title='MERGE ELEMENTS')
+    for element in reversed(elements):
+        # is there a child with same title
+        for item in reversed(elements):
+            if ('parent' in item) and (item['parent'] == element['id']) and (item['title'] == element['title']):
+                _print('merge {} {} in {}'.format(item['title'], item['what'], element['what']), prefix='>')
+                if 'content' in item:
+                    if 'content' in element: element['content'] += item['content']
+                    else: element['content'] = item['content']
+                if 'resources' in item:
+                    if 'resources' in element: element['resources'] += item['resources']
+                    else: element['resources'] = item['resources']
+                if item['what'] in ['page']: elements.remove(item)
+                break
+
+    # tags and path
+
+    _print( '', line=True, title='TAGS AND PATHS')
+    for element in elements:
+
+        element['tags'] =  []
+        element['path'] =  []
+        for item in elements:
+            if ('parent' in element) and (item['id'] == element['parent']):
+                if 'tags' in item: element['tags'] += item['tags']
+                if 'path' in item: element['path'] += item['path']
+                if (item['what'] in ['notebook', 'group']):
+                    element['tags'] += [ item['slug'] ]
+                element['path'] += [ item['slug'] ]
+                element['path'] += [ element['slug'] ]
+                break
+
+    # resources
+
+    _print( '', line=True, title='RESOURCES')
+    for element in elements:
+        onenote_resources( token, element )
 
     # dump as json
 
@@ -101,45 +308,109 @@ def onenote_all( token, force=False ):
     except:
         pass
 
+    _print( '', line=True, title='ELEMENTS')
+    for element in elements:
+        tmp = dict(element)
+        if 'content' in tmp: tmp['content'] = "scrubbed content"
+        _print( '{}'.format(pprint.pformat( tmp )))
+        del tmp    
+
+    _print( '', line=True, title='STRUCTURE')
+    for element in elements:
+        level = len(element['path']) if 'path' in element else 0
+        _print( '{}{} [{}]{}{} [{}] [{}]'.format( "    "*level, element['title'], 
+                                        element['what'], 
+                                        ' by ' if 'author' in element else '', 
+                                        element['author'] if 'author' in element else '',
+                                        element['order'] if 'order' in element else '-',
+                                        element['modified'] if 'modified' in element else element['created'],
+                                      ))
+
     return elements
 
 # #################################################################################################################################
+# ONENOTE CLEAR
+# #################################################################################################################################
+
+def onenote_clear():
+
+    out_dir = os.path.join( os.path.dirname(__file__), 'onenote' )
+    shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
+
+# #################################################################################################################################
+# ONENOTE CATALOG
+# #################################################################################################################################
+
+def onenote_catalog( token ):
+
+    onenote_response = requests.get( 'https://graph.microsoft.com/v1.0/me/onenote/notebooks', 
+                                     headers={'Authorization': 'Bearer ' + token} ).json()
+
+    if 'value' in onenote_response: onenote_objects = onenote_response['value']
+    else: onenote_objects = [ onenote_response ]
+
+    catalog=[]
+    for onenote_object in onenote_objects:
+        catalog += [ {'title': onenote_object['displayName'], 'self': onenote_object['self']}]        
+
+    return catalog
+
+# #################################################################################################################################
+# ONENOTE RESOURCES
+# #################################################################################################################################
+
+def onenote_resources( token, element ):
+
+    if 'resources' in element:
+        for resource in element['resources']:
+            _print( '{}...'.format(resource['url']), prefix='>>')
+
+            out_file = os.path.join( os.path.dirname(__file__), 'onenote', os.path.sep.join(element['path']), resource['name'] )
+
+            # test dates to check if load is mandatory
+            date_page = element['modified'] if 'modified' in element else element['created']
+            date_page = dt.strptime(date_page, '%Y-%m-%dT%H:%M:%SZ')
+            try:
+                date_file = dt.fromtimestamp(os.path.getmtime( out_file ))
+            except:
+                date_file = date_page
+
+            if not os.path.isfile(out_file) or (date_file < date_page):
+
+                if not os.path.isfile(out_file): _print( 'missing file', prefix='  ...' )
+                elif (date_file < date_page): _print( 'outdated file', prefix='  ...' )
+
+                out_dir = os.path.dirname(out_file)
+
+                if not os.path.isdir(out_dir):
+                    os.makedirs(out_dir)
+
+                data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
+
+                with open(out_file, 'wb') as fs:
+                    fs.write(data.content) 
+
+                resource['data'] = out_file
+
+            _print( '{}: {} bytes'.format( out_file, os.path.getsize(out_file) ), prefix='  ...' )
+    
+#################################################################################################################################
 # ONENOTE PROCESS
 # #################################################################################################################################
 
-def onenote_process( token, what='notebook', url='', force=False ):
+def onenote_process( token, what, url ):
     run = True
-    elements = []
+    elements = pd.DataFrame()
 
-    if url == '':
-        #if what == 'notebook': url='https://graph.microsoft.com/v1.0/me/onenote/notebooks/0-34CFFB16AE39C6B3!335975'
-        if what == 'notebook': url='https://graph.microsoft.com/v1.0/me/onenote/notebooks'
-        elif what == 'section': url='https://graph.microsoft.com/v1.0/me/onenote/sections'
-        elif what == 'group': url='https://graph.microsoft.com/v1.0/me/onenote/sectionGroups'
-        elif what == 'page': url='https://graph.microsoft.com/v1.0/me/onenote/pages'
-        elif what == 'resource': url='https://graph.microsoft.com/v1.0/me/onenote/resources'
-        else: run = False
+    if (url == '') and (what == 'notebook'): 
+        url='https://graph.microsoft.com/v1.0/me/onenote/notebooks'
 
     while run:
-        retry = 2
-
-        while retry > 0:
-            onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
-
-            if 'error' in onenote_response:
-                print( '[{0:<8}] error: {1} - {2}'.format(what, onenote_response['error']['code'], onenote_response['error']['message']) )
-                if onenote_response['error']['code'] == "20166":
-                    print( "... sleep ...") 
-                    time.sleep( 60.0 )
-                    retry -= 1
-                else:
-                    retry = 0
-                    break
-            else:
-                retry = 0
-                break
+        onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
 
         if 'error' in onenote_response:
+            print( '[{0:<8}] error: {1} - {2}'.format(what, onenote_response['error']['code'], onenote_response['error']['message']) )
             run = False
         else:
             if 'value' in onenote_response: onenote_objects = onenote_response['value']
@@ -147,41 +418,21 @@ def onenote_process( token, what='notebook', url='', force=False ):
 
             for onenote_object in onenote_objects:
                 if 'contentUrl' in onenote_object:
+                    # onenote_object['content'] = onenote_process( token, 'content', onenote_object["self"] + "/$value" )
                     onenote_object['content'] = requests.get( onenote_object["self"] + "/$value", headers={'Authorization': 'Bearer ' + token} )
 
                 element = onenote_element(onenote_object, what)
 
-                # process resources
-                if 'resources' in element:
-                    for resource in element['resources']:
-                        print( 'retrieving {}...'.format(resource['url']))
-                        out_file = os.path.join( os.path.dirname(__file__), 'onenote', resource['name'] )
-                        out_dir = os.path.dirname(out_file)
-
-                        if not os.path.isdir(out_dir):
-                            os.makedirs(out_dir)
-
-                        if force or not os.path.isfile(out_file):
-                            print( '  > loading {}...'.format(resource['url']))
-                            data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
-
-                            with open(out_file, 'wb') as fs:
-                                fs.write(data.content) 
-
-                            resource['data'] = out_file
-
-                        print( '  > {}: {} bytes'.format( out_file, os.path.getsize(out_file) ) )
-
-                elements = elements + [ element ]
-
-                if 'sectionsUrl' in onenote_object:
-                    elements = elements + onenote_process( token, 'section', onenote_object["sectionsUrl"] )
+                elements = elements.append( vars(element), ignore_index=True )
 
                 if 'sectionGroupsUrl' in onenote_object:
-                    elements = elements + onenote_process( token, 'group', onenote_object["sectionGroupsUrl"] )
+                    elements = elements.append( onenote_process( token, 'group', onenote_object["sectionGroupsUrl"] + '?$orderby=lastModifiedDateTime desc' ), ignore_index=True )
+
+                if 'sectionsUrl' in onenote_object:
+                    elements = elements.append( onenote_process( token, 'section', onenote_object["sectionsUrl"] + '?$orderby=lastModifiedDateTime desc' ), ignore_index=True )
 
                 if 'pagesUrl' in onenote_object:
-                    elements = elements + onenote_process( token, 'page', onenote_object["pagesUrl"] + '?pagelevel=true&orderby=order' )
+                    elements = elements.append( onenote_process( token, 'page', onenote_object["pagesUrl"] + '?pagelevel=true&orderby=order' ), ignore_index=True )
 
             if '@odata.nextLink' in onenote_response:
                 url = onenote_response['@odata.nextLink']
@@ -195,62 +446,49 @@ def onenote_process( token, what='notebook', url='', force=False ):
 # #################################################################################################################################
 
 def onenote_element( element, what ):
-    content = {}
+    content = ONENOTE_ELEMENT()
 
-    content['what'] = what
+    content.what = what
 
     if 'id' in element: 
-        content['id'] = element['id']
+        content.id = element['id']
+
+    if 'self' in element: 
+        content.self = element['self']
+
+    if 'order' in element: 
+        content.order = element['order']
 
     if 'parentNotebook' in element: 
         if element['parentNotebook'] and 'id' in element['parentNotebook']: 
-            content['parent'] = element['parentNotebook']['id']
+            content.parent = element['parentNotebook']['id']
 
     if 'parentSectionGroup' in element: 
         if element['parentSectionGroup'] and 'id' in element['parentSectionGroup']: 
-            content['parent'] = element['parentSectionGroup']['id']
+            content.parent = element['parentSectionGroup']['id']
 
     if 'parentSection' in element: 
         if element['parentSection'] and 'id' in element['parentSection']: 
-            content['parent'] = element['parentSection']['id']
+            content.parent = element['parentSection']['id']
 
-    if 'order' in element: 
-        content['order'] = element['order']
+    if 'displayName' in element: content.title = element["displayName"]
+    elif 'title' in element: content.title = element["title"]
 
-    if 'displayName' in element: content['title'] = element["displayName"]
-    elif 'title' in element: content['title'] = element["title"]
-    else: content['hidetitle'] = True
+    if content.title: content.slug = slugify( content.title )
+    else: content.slug = slugify( content.id )
 
-    if 'title' in content: content['slug'] = slugify( content['title'] )
-    else: content['slug'] = slugify( content['id'] )
+    if 'createdDateTime' in element: content.created = element["createdDateTime"]
+    if 'lastModifiedDateTime' in element: content.modified = element["lastModifiedDateTime"]
 
-    if 'createdDateTime' in element: content['date'] = element["createdDateTime"]
-    if 'lastModifiedDateTime' in element: content['updated'] = element["lastModifiedDateTime"]
+    if 'createdBy' in element and 'user' in element['createdBy'] and 'displayName' in element['createdBy']['user']: 
+        content.author = element['createdBy']['user']['displayName']
 
-    # content['tags']
-    # content['status']
-    # content['has_math']
-    # content['category']
-    # content['guid']
-    # content['link']
-    # content['description']
-    # content['type']
-    # content['author']
-    # content['enclosure']
-    # content['data']
-    # content['filters']
-    # content['hyphenate']
-    # content['nocomments'] = False
-    # content['pretty_url']
-    # content['previewimage']
-    # content['template']
-    # content['url_type']
+    if 'lastModifiedBy' in element and 'user' in element['lastModifiedBy'] and 'displayName' in element['lastModifiedBy']['user']: 
+        content.author = element['lastModifiedBy']['user']['displayName']
 
     resources = []
 
     if 'content' in element: 
-
-        # pprint.pprint( element['content'].text )
 
         soup = BeautifulSoup(element['content'].text, features="html.parser")
 
@@ -267,7 +505,7 @@ def onenote_element( element, what ):
             if (tag["style"].find("position:absolute") != -1):
                 del tag["style"]
 
-        content['resources'] = []
+        content.resources = []
 
         # objects
         # -------
@@ -279,7 +517,8 @@ def onenote_element( element, what ):
 
         for tag in soup.select("object[data-attachment]"): 
             name = re.search( r'^.*resources/(.*?)!', tag['data']).group(1) + '_' + tag['data-attachment']
-            content['resources'] += [ { 'name': name, 'url': tag['data'], 'data': None, 'type': 'object' } ]
+            name = tag['data-attachment']
+            content.resources += [ { 'name': name, 'url': tag['data'], 'data': None, 'type': 'object' } ]
 
         # images
         # ------
@@ -300,35 +539,25 @@ def onenote_element( element, what ):
             del tag['alt']
 
             name = re.search( r'^.*resources/(.*?)!', tag['src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
-            content['resources'] += [ { 'name': name, 'url': tag['src'], 'data': None, 'type': 'image' } ]
+            content.resources += [ { 'name': name, 'url': tag['src'], 'data': None, 'type': 'image' } ]
 
-            if tag['data-fullres-src'] == tag['src']:
-                name = re.search( r'^.*resources/(.*?)!', tag['src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
-            else:
-                name = re.search( r'^.*resources/(.*?)!', tag['data-fullres-src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
-            content['resources'] += [ { 'name': name, 'url': tag['data-fullres-src'], 'data': None, 'type': 'fullres' } ]
-
+            name = re.search( r'^.*resources/(.*?)!', tag['data-fullres-src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
+            content.resources += [ { 'name': name, 'url': tag['data-fullres-src'], 'data': None, 'type': 'fullres' } ]
 
             del tag['height']
 
             tag['width'] = 600
 
-        content['content'] = str( soup.find("body") )
+        content.content = str( soup.find("body") )
 
-        if len( content['resources'] ) > 0: 
+        if len( content.resources ) > 0: 
             # remove duplicates
             pass
         else:
-            del content['resources']
+            content.resources = None
 
-    print( '[{0:<8}] {1}'.format(content['what'], content['title']) )
-    print( '-'*250 )
-    pprint.pprint( element )
-    print( '-'*250 )
-    tmp = dict(content)
-    if 'content' in tmp: tmp['content'] = "scrubbed content"
-    pprint.pprint( tmp )
-    del tmp
-    print( '-'*250 )
+    _print( '[{0:<8}] {1}'.format(content['what'], content['title']), line=True )
+    _print( '{}'.format(pprint.pformat( element )), line=True )
+    _print( '{}'.format(pprint.pformat( vars(content)) ), line=True )
 
     return content
