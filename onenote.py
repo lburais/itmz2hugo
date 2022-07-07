@@ -51,6 +51,8 @@ import xlsxwriter
 
 DEBUG = True
 
+nan = float('NaN')
+
 def _print( text, line=False, prefix='', title='' ):
     if DEBUG:
         if line:
@@ -145,68 +147,95 @@ class ONENOTE:
 
     def get_all( self, token, filename=None ):
 
-        _print( '', line=True, title='GET ALL')
-
         self.token = token
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # load xls file
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
+        self.onenote_elements = pd.DataFrame()
         if filename:
             if os.path.isfile( filename ):
-                self.onenote_elements = pd.read_excel( filename, sheet_name='OneNote', engine='openpyxl')
+                _print( '', line=True, title='LOAD EXCEL FILE')
+                _print( 'Loading {} file'.format(filename))
 
+                self.onenote_elements = pd.read_excel( filename, sheet_name='OneNote', engine='openpyxl')
+            
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # get elements
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
         if len(self.onenote_elements) == 0:
-            self.onenote_elements = self._get(self.token, 'notebook')
-            self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'group') ], ignore_index=True )
-            self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'section') ], ignore_index=True )
-            self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'page') ], ignore_index=True )
+            _print( '', line=True, title='GET ELEMENTS')
+
+            self.onenote_elements = self._get('notebook')
+            self.onenote_elements = pd.concat( [ self.onenote_elements, self._get('group') ], ignore_index=True )
+            self.onenote_elements = pd.concat( [ self.onenote_elements, self._get('section') ], ignore_index=True )
+            self.onenote_elements = pd.concat( [ self.onenote_elements, self._get('page') ], ignore_index=True )
 
             _print( 'Nb elements = {}'.format(len(self.onenote_elements)) )
+
+            self._save_excel('elements')
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # get content
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        self._get_contents(self.token)
+        status = self._get_contents()
+
+        self._save_excel('content')
+
+        #if not status: return False
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # get resources
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        self._get_resources(self.token)
+        status = self._get_resources()
+
+        self._save_excel('resources')
+
+        #if not status: return False
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
-        # tweak content
+        # expand data
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        self._tweak_contents(self.token)
+        self._process_elements()
         
+        self._save_excel('data')
+
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+        # load resources
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+
+        self._load_resources()
+
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # drop columns
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
         _print( '', line=True, title='DROP COLUMNS')
 
-        #   *Url*
-        #   *user.id
-        #   *odata.context
-        #   parent*.self
-        #   title
-        #   createdByAppId
+        to_drop = [
+            r'Url',
+            r'user.id',
+            r'odata.context',
+            r'parent*.self',
+            r'title',
+            r'createdByAppId',
+            r'isShared',
+            r'isDefault',
+            r'userRole',
+        ]
         drop_list = []
+
         for key in self.onenote_elements.columns.to_list():
-            if re.search( r'Url', key): drop_list += [ key ]
-            elif re.search( r'user.id', key): drop_list += [ key ]
-            elif re.search( r'odata.context', key): drop_list += [ key ]
-            elif re.search( r'parent.*.self', key): drop_list += [ key ]
-            elif re.search( r'title', key): drop_list += [ key ]
-            elif re.search( r'createdByAppId', key): drop_list += [ key ]
+            for val in to_drop:
+                if re.search( val, key): 
+                    drop_list += [ key ]
+                    break
+
         if 'contentUrl' in drop_list: drop_list.remove('contentUrl')
 
         _print( 'Drop list: {}'.format(drop_list))
@@ -217,28 +246,19 @@ class ONENOTE:
         # save excel
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        _print( '', line=True, title='SAVE EXCEL')
-        try:
-            out_file = os.path.join( os.path.dirname(__file__), 'onenote', "onenote_{}.xlsx".format(dt.now().strftime("%d_%b_%Y_%H_%M_%S").lower()) )
-            out_dir = os.path.dirname(out_file)
-            if not os.path.isdir(out_dir):
-                os.makedirs(out_dir)
+        self._save_excel()
 
-            writer = pd.ExcelWriter(out_file, engine='xlsxwriter')
-            workbook  = writer.book
-            self.onenote_elements.to_excel( writer, sheet_name='OneNote', index=False, na_rep='')
-            writer.close()
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+        # completed
+        # -------------------------------------------------------------------------------------------------------------------------------------------
 
-            _print( "{} rows saved in file {}.".format(len(self.onenote_elements), out_file) )        
-
-        except:
-            _print( "Something went wrong with file {}.".format(out_file) )        
+        return True
 
     # ===============================================================================================================================================
     # _get
     # ===============================================================================================================================================
 
-    def _get( self, token, what ):
+    def _get( self, what ):
         elements = pd.DataFrame()
         run = True
         page_count = 0
@@ -257,7 +277,7 @@ class ONENOTE:
 
             _print( '> {}'.format( url) )
 
-            onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
+            onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + self.token} ).json()
 
             if 'error' in onenote_response:
                 _print( '[{0:<8}] error: {1} - {2}'.format(what, onenote_response['error']['code'], onenote_response['error']['message']) )
@@ -267,6 +287,7 @@ class ONENOTE:
                 else: onenote_objects = onenote_response
 
                 onenote_elements = pd.json_normalize(onenote_objects['value'])
+                onenote_elements['what'] = what
 
                 if len(elements) >0 : elements = pd.concat( [ elements, onenote_elements ], ignore_index=True )
                 else: elements = onenote_elements.copy()
@@ -295,57 +316,247 @@ class ONENOTE:
     # _get_contents
     # ===============================================================================================================================================
 
-    def _get_contents( self, token ):
+    def _get_contents( self ):
 
         def _get_content( row ):
-            _print( '> {}'.format( row['contentUrl']) )
+            _print( '> [{}] {}'.format( int(row['index']), row['contentUrl'] ))
+            
             response = requests.get( row['contentUrl'].replace( "content", "$value"), headers={'Authorization': 'Bearer ' + self.token} )
-            if 'error' in response:
-                _print( '[{0}] error: {1} - {2}'.format(row['contentUrl'], response['error']['code'], response['error']['message']) )
-                return None
+            try:
+                iserror = ('error' in response.json())
+            except:
+                iserror = False
+
+            if iserror:
+                _print( 'error: {} - {}'.format(response.json()['error']['code'], response.json()['error']['message']) )
+                return nan
             else:
-                return response.text
+                soup = BeautifulSoup(response.text, features="html.parser")
+
+                # absolute
+                # --------
+                # <body data-absolute-enabled="true" style="font-family:Calibri;font-size:11pt">
+                # <div style="position:absolute;left:48px;top:115px;width:576px">
+
+                for tag in soup.select("body[data-absolute-enabled]"):
+                    del tag["data-absolute-enabled"]
+
+                tags = soup.find_all( 'div', style=re.compile("position:absolute") )
+                for tag in tags:
+                    if (tag["style"].find("position:absolute") != -1):
+                        del tag["style"]
+
+                return str( soup.find("body") )
 
         if 'contentUrl' in self.onenote_elements.columns.to_list():
             _print( '', line=True, title='GET CONTENTS')
 
             if 'content' not in self.onenote_elements.columns.to_list():
-                self.onenote_elements['content'] = None
+                self.onenote_elements['content'] = nan
 
+            # process elements with contentUrl and no content
             cond = (~self.onenote_elements['contentUrl'].isna())
             cond &= (self.onenote_elements['content'].isna())
+            nb = len(self.onenote_elements[cond])
 
-            _print( 'Recovering {} contents'. format(len(self.onenote_elements[cond])))
+            _print( 'Recovering {} contents'. format(nb))
 
+            self.onenote_elements['index'] = nan
+            self.onenote_elements.loc[cond, 'index'] = range(1, nb+1)
             self.onenote_elements.loc[cond, 'content'] = self.onenote_elements[cond].apply(_get_content, axis='columns')
-            
+            self.onenote_elements.drop( columns=['index'], inplace=True)
+
             cond = (~self.onenote_elements['contentUrl'].isna())
             cond &= (self.onenote_elements['content'].isna())
-            _print( '  .. missing {} contents'. format(len(self.onenote_elements[cond])))
+
+            if len(self.onenote_elements[cond]) > 0: _print( '.. missing {} contents'. format(len(self.onenote_elements[cond])))
+
+            return (len(self.onenote_elements[cond]) == 0)
 
     # ===============================================================================================================================================
     # _get_resources
     # ===============================================================================================================================================
 
-    def _get_resources( self, token ):
+    def _get_resources( self ):
 
-        if 'contentUrl' in self.onenote_elements.columns.to_list():
+        def _get_resource( row ):
+
+            soup = BeautifulSoup(row['content'], features="html.parser")
+
+            resources = []
+            empty = [{ 'type': [None], 'name': [None], 'url': [None], 'filename': [None], 'uptodate': [False], 'path': [None], 'date': [None] }]
+            if 'path' in row: empty[-1]['path']  = row['path']
+            if 'created' in row: empty[-1]['date']  = row['created']
+            if 'modified' in row: empty[-1]['date']  = row['modified']
+
+            # objects
+            # -------
+            # <object 
+            # data="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-8a9f130df6d87945a8099be6b6d2be82!1-34CFFB16AE39C6B3!335924/$value" 
+            # data-attachment="SEJOUR BURAIS 007-IND-M-22.pdf" 
+            # type="application/pdf">
+            # </object>
+
+            for tag in soup.select("object[data-attachment]"): 
+                resources += empty
+                resources[-1]['name'] = re.search( r'^.*resources/(.*?)!', tag['data']).group(1) + '_' + tag['data-attachment']
+                resources[-1]['name'] = tag['data-attachment']
+                resources[-1]['url'] = tag['data']
+                resources[-1]['type'] = 'object'
+
+            # images
+            # ------
+            # <img 
+            # alt="bla bla bla"
+            # data-fullres-src="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value" 
+            # data-fullres-src-type="image/png" 
+            # data-id="2f8fe6dc-10b8-c046-ba5b-c6ccf2c8884a" 
+            # data-index="2" 
+            # data-options="printout" 
+            # data-src-type="image/png" 
+            # height="842" 
+            # src="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value" 
+            # width="595"
+            # />
+
+            for tag in soup.select('img[src]'):
+                del tag['alt']
+
+                resources += empty
+                resources[-1]['name'] = re.search( r'^.*resources/(.*?)!', tag['src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
+                resources[-1]['url'] = tag['src']
+                resources[-1]['type'] = 'image'
+
+                resources += empty
+                resources[-1]['name'] = re.search( r'^.*resources/(.*?)!', tag['data-fullres-src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
+                resources[-1]['url'] = tag['data-fullres-src']
+                resources[-1]['type'] = 'fullres'
+
+                del tag['height']
+
+                tag['width'] = 600
+
+            return resources
+
+        if 'content' in self.onenote_elements.columns.to_list():
             _print( '', line=True, title='GET RESOURCES')
 
             if 'resources' not in self.onenote_elements.columns.to_list():
-                self.onenote_elements['resources'] = None
+                self.onenote_elements['resources'] = nan
+
+            cond = (~self.onenote_elements['content'].isna())
+            cond &= (self.onenote_elements['resources'].isna())
+            nb = len(self.onenote_elements[cond])
+
+            _print( 'Parsing {} contents'. format(nb))
+
+            self.onenote_elements.loc[cond, 'resources'] = self.onenote_elements[cond].apply(_get_resource, axis='columns')
+
+            cond = (~self.onenote_elements['content'].isna())
+            cond &= (self.onenote_elements['resources'].isna())
+
+            if len(self.onenote_elements[cond]) > 0: _print( '.. missing {} contents'. format(len(self.onenote_elements[cond])))
+
+            return (len(self.onenote_elements[cond]) == 0)
 
     # ===============================================================================================================================================
-    # _tweak_contents
+    # _load_resources
     # ===============================================================================================================================================
 
-    def _tweak_contents( self, token ):
+    def _load_resources( self ):
+
+        def _load_resource( row ):
+            _print( '{}...'.format(row['url']), prefix='>>')
+
+            out_file = os.path.join( os.path.dirname(__file__), 'onenote', os.path.sep.join(element['path']), row['name'] )
+
+            # test dates to check if load is mandatory
+            date_page = element['modified'] if 'modified' in element else element['created']
+            date_page = dt.strptime(date_page, '%Y-%m-%dT%H:%M:%SZ')
+            try:
+                date_file = dt.fromtimestamp(os.path.getmtime( out_file ))
+            except:
+                date_file = date_page
+
+            if not os.path.isfile(out_file) or (date_file < date_page):
+
+                if not os.path.isfile(out_file): _print( 'missing file', prefix='  ...' )
+                elif (date_file < date_page): _print( 'outdated file', prefix='  ...' )
+
+                out_dir = os.path.dirname(out_file)
+
+                if not os.path.isdir(out_dir):
+                    os.makedirs(out_dir)
+
+                data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + self.token} )
+
+                with open(out_file, 'wb') as fs:
+                    fs.write(data.content) 
+
+            _print( '{}: {} bytes'.format( out_file, os.path.getsize(out_file) ), prefix='  ...' )
+
+        if 'contentUrl' in self.onenote_elements.columns.to_list():
+            _print( '', line=True, title='LOAD RESOURCES')
+            
+    # ===============================================================================================================================================
+    # _process_elements
+    # ===============================================================================================================================================
+
+    def _process_elements( self ):
         _print( '', line=True, title='TWEAK CONTENT' )
 
         if 'title' in self.onenote_elements.columns.to_list() and 'displayName' in self.onenote_elements.columns.to_list():
             cond = ~self.onenote_elements['title'].isna()
             cond &= self.onenote_elements['displayName'].isna()
             self.onenote_elements.loc[cond, 'displayName'] = self.onenote_elements['title']
+
+        _print( '', line=True, title='SET PARENT' )
+
+        self.onenote_elements['parent'] = nan
+        self.onenote_elements.loc[~self.onenote_elements['parentNotebook.id'].isna(), 'parent'] = self.onenote_elements['parentNotebook.id']
+        self.onenote_elements.loc[~self.onenote_elements['parentSectionGroup.id'].isna(), 'parent'] = self.onenote_elements['parentSectionGroup.id']
+        self.onenote_elements.loc[~self.onenote_elements['parentSection.id'].isna(), 'parent'] = self.onenote_elements['parentSection.id']
+        
+        _print( '', line=True, title='MERGE ELEMENTS' )
+
+        self.onenote_elements['delete'] = False
+        cond = (~self.onenote_elements['what'].isin(['page']))
+        for i, row in self.onenote_elements[cond].iterrows():
+            # find a page with same title
+            pass
+
+        self.onenote_elements.drop( columns=['delete'], inplace=True)
+
+        _print( '', line=True, title='SET TAGS' )
+
+        _print( '', line=True, title='SET PATH' )
+
+        _print( '', line=True, title='SET CHILDS' )
+
+    # ===============================================================================================================================================
+    # _save_excel
+    # ===============================================================================================================================================
+
+    def _save_excel( self, type='' ):
+
+        _print( '', line=True, title='SAVE EXCEL')
+
+        try:
+            name = 'onenote_{}{}{}.xlsx'.format( '' if type=='' else type, '' if type=='' else '_', dt.now().strftime("%d_%b_%Y_%H_%M_%S").lower())
+            out_file = os.path.join( os.path.dirname(__file__), 'onenote', name )
+            out_dir = os.path.dirname(out_file)
+            if not os.path.isdir(out_dir):
+                os.makedirs(out_dir)
+
+            writer = pd.ExcelWriter(out_file, engine='xlsxwriter')
+            workbook  = writer.book
+            self.onenote_elements.to_excel( writer, sheet_name='OneNote', index=False, na_rep='')
+            writer.close()
+
+            _print( "{} rows saved in file {}.".format(len(self.onenote_elements), out_file) )        
+
+        except:
+            _print( "Something went wrong with file {}.".format(out_file) )        
 
 def onenote( token, url ):
 

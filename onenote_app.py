@@ -50,9 +50,11 @@ class onenote_flask:
                 onenote_objects = onenote.get_all( token['access_token'], filename )
                 #jamstack_write( elements=onenote_objects, output=args.output )
 
-            catalog = [ { 'filename': 'Force', 'name': 'Force' } ]
+            catalog = [ { 'filename': 'FORCE', 'name': 'FORCE' } ]
             for d in glob.glob(glob.escape(os.path.join( os.path.dirname(__file__), 'onenote')) + "/onenote*.xlsx"):
-                catalog += [ { 'filename': d, 'name': os.path.basename(d) } ]
+                display =  os.path.basename(d).replace('onenote_', '').replace('.xlsx', '').replace('_', ' ').upper()
+                catalog += [ { 'filename': d, 'name': display } ]
+            catalog.insert(1, { 'filename': catalog[-1]['filename'], 'name': 'LAST' } )
             return catalog
 
         @app.route("/")
