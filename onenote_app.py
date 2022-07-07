@@ -11,6 +11,13 @@ import msal
 
 import platform
 
+import glob
+
+# pip3 install XlsxWriter
+# pip3 install openpyxl
+import xlsxwriter
+
+
 # #################################################################################################################################
 #
 # onenote_flask
@@ -28,35 +35,39 @@ class onenote_flask:
         Session(app)
         app.debug = True
 
-        onenote = ONENOTE()
+        onenote = ONENOTE(os.path.join( os.path.dirname(__file__), 'onenote'))
 
-        def action( what = '' ):
+        def action( clear=False, filename=None ):
             if not session.get("user"):
                 return redirect(url_for("login"))
 
             token = get_token(onenote_config.SCOPE)
 
-            if what in ['clear']:
-                onenote_clear()
-                jamstack_clear()
-            elif what in ['getall']:
-                onenote_objects = onenote._get_all( token['access_token'] )
-                #onenote_objects = onenote( token['access_token'], url )
+            if clear:
+                onenote.clear()
+                #jamstack_clear()
+            elif filename:
+                onenote_objects = onenote.get_all( token['access_token'], filename )
                 #jamstack_write( elements=onenote_objects, output=args.output )
+
+            catalog = [ { 'filename': 'Force', 'name': 'Force' } ]
+            for d in glob.glob(glob.escape(os.path.join( os.path.dirname(__file__), 'onenote')) + "/onenote*.xlsx"):
+                catalog += [ { 'filename': d, 'name': os.path.basename(d) } ]
+            return catalog
 
         @app.route("/")
         def index():
-            return render_template('index.html')
+            return render_template('index.html', result=action() )
 
         @app.route("/clear")
         def clear():
             action( 'clear')
-            return render_template('index.html')
+            return render_template('index.html', result=action(clear=True))
 
-        @app.route("/getall")
-        def getall():
-            action( 'getall')
-            return render_template('index.html')
+        @app.route("/get")
+        def get():
+            file = request.args.get('filename')
+            return render_template('index.html', result=action(filename=file))
 
         ###############################################################################
 

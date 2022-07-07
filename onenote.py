@@ -10,12 +10,20 @@ Dependencies:
 * TBC
 
 Run:
+mkdir /Volumes/library
+mount_afp -i afp://Pharaoh.local/library /Volumes/library
 
+cd /Volumes/library/Development/jamstack
 python3 -m venv venv
 source venv/bin/activate
+
 python3 -m pip install --upgrade pip
 pip3 install requests,flask,flask_session,msal,markdownify
+
 python3 jamstack.py --input onenote --output site/nikola --nikola --html
+
+Graph Explorer:
+https://developer.microsoft.com/fr-fr/graph/graph-explorer
 """
 
 import json
@@ -34,6 +42,7 @@ from tabulate import tabulate
 import pandas as pd
 
 # pip3 install XlsxWriter
+# pip3 install openpyxl
 import xlsxwriter
 
 # #################################################################################################################################
@@ -101,59 +110,87 @@ def slugify( value ):
 
     return value  
 
-# #################################################################################################################################
+# ###################################################################################################################################################
 # ONENOTE
-# #################################################################################################################################
+# ###################################################################################################################################################
 
 class ONENOTE:
 
-    onenote_elements = None
+    onenote_elements = pd.DataFrame()
     token = None
+    directory = None
+    files_directory = None
 
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ===============================================================================================================================================
     # __init__
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ===============================================================================================================================================
 
-    def __init__( self ): 
-        pass
+    def __init__( self, directory ): 
+        self.directory = directory
+        self.files_directory = os.path.join( self.directory, 'files' )
 
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    # _get_all
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ===============================================================================================================================================
+    # clear
+    # ===============================================================================================================================================
 
-    def _get_all( self, token ):
+    def clear(self):
+
+        if os.path.isdir(self.files_directory):
+            shutil.rmtree(self.files_directory)
+        os.makedirs(self.files_directory)
+
+    # ===============================================================================================================================================
+    # get_all
+    # ===============================================================================================================================================
+
+    def get_all( self, token, filename=None ):
+
         _print( '', line=True, title='GET ALL')
 
         self.token = token
 
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+        # load xls file
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+
+        if filename:
+            if os.path.isfile( filename ):
+                self.onenote_elements = pd.read_excel( filename, sheet_name='OneNote', engine='openpyxl')
+
+        # -------------------------------------------------------------------------------------------------------------------------------------------
         # get elements
-        self.onenote_elements = self._get(self.token, 'notebook')
-        self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'group') ], ignore_index=True )
-        self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'section') ], ignore_index=True )
-        self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'page') ], ignore_index=True )
+        # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        _print( 'Nb elements = {}'.format(len(self.onenote_elements)) )
+        if len(self.onenote_elements) == 0:
+            self.onenote_elements = self._get(self.token, 'notebook')
+            self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'group') ], ignore_index=True )
+            self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'section') ], ignore_index=True )
+            self.onenote_elements = pd.concat( [ self.onenote_elements, self._get(self.token, 'page') ], ignore_index=True )
 
+            _print( 'Nb elements = {}'.format(len(self.onenote_elements)) )
+
+        # -------------------------------------------------------------------------------------------------------------------------------------------
         # get content
-        _print( '', line=True, title='TWEAK')
+        # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        cond = ~self.onenote_elements['title'].isna()
-        cond &= self.onenote_elements['displayName'].isna()
-        self.onenote_elements.loc[cond, 'displayName'] = self.onenote_elements['title']
+        self._get_contents(self.token)
+
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+        # get resources
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+
+        self._get_resources(self.token)
+
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+        # tweak content
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+
+        self._tweak_contents(self.token)
         
-        # get content
-        _print( '', line=True, title='GET CONTENT')
-
-        _print( 'Columns: {}'.format(self.onenote_elements.columns.to_list()))
-
-        def _get_content( row ):
-            return requests.get( row['contentUrl'].replace( "content", "$value"), headers={'Authorization': 'Bearer ' + self.token} ).text
-
-        self.onenote_elements['content'] = None
-        cond = ~self.onenote_elements['contentUrl'].isna()
-        self.onenote_elements.loc[cond, 'content'] = self.onenote_elements[cond].apply(_get_content, axis='columns')
-
+        # -------------------------------------------------------------------------------------------------------------------------------------------
         # drop columns
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+
         _print( '', line=True, title='DROP COLUMNS')
 
         #   *Url*
@@ -161,6 +198,7 @@ class ONENOTE:
         #   *odata.context
         #   parent*.self
         #   title
+        #   createdByAppId
         drop_list = []
         for key in self.onenote_elements.columns.to_list():
             if re.search( r'Url', key): drop_list += [ key ]
@@ -168,33 +206,43 @@ class ONENOTE:
             elif re.search( r'odata.context', key): drop_list += [ key ]
             elif re.search( r'parent.*.self', key): drop_list += [ key ]
             elif re.search( r'title', key): drop_list += [ key ]
+            elif re.search( r'createdByAppId', key): drop_list += [ key ]
+        if 'contentUrl' in drop_list: drop_list.remove('contentUrl')
+
         _print( 'Drop list: {}'.format(drop_list))
 
         self.onenote_elements.drop( columns=drop_list, inplace=True )
 
+        # -------------------------------------------------------------------------------------------------------------------------------------------
         # save excel
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+
         _print( '', line=True, title='SAVE EXCEL')
         try:
-            out_file = os.path.join( os.path.dirname(__file__), 'onenote', 'onenote.xlsx' )
+            out_file = os.path.join( os.path.dirname(__file__), 'onenote', "onenote_{}.xlsx".format(dt.now().strftime("%d_%b_%Y_%H_%M_%S").lower()) )
             out_dir = os.path.dirname(out_file)
             if not os.path.isdir(out_dir):
                 os.makedirs(out_dir)
 
             writer = pd.ExcelWriter(out_file, engine='xlsxwriter')
             workbook  = writer.book
-            self.onenote_elements.to_excel( writer, index=False, na_rep='')
+            self.onenote_elements.to_excel( writer, sheet_name='OneNote', index=False, na_rep='')
             writer.close()
+
+            _print( "{} rows saved in file {}.".format(len(self.onenote_elements), out_file) )        
 
         except:
             _print( "Something went wrong with file {}.".format(out_file) )        
 
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ===============================================================================================================================================
     # _get
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ===============================================================================================================================================
 
     def _get( self, token, what ):
         elements = pd.DataFrame()
         run = True
+        page_count = 0
+        page_nb = 100
 
         if (what == 'notebook'): url='https://graph.microsoft.com/v1.0/me/onenote/notebooks'
         elif (what == 'group'): url='https://graph.microsoft.com/v1.0/me/onenote/sectionGroups'
@@ -203,6 +251,10 @@ class ONENOTE:
         else: run = False
 
         while run:
+            if (what == 'page'): 
+                url += '?$top={}'.format(page_nb)
+                if page_count > 0: url += '&$skip={}'.format(page_count)
+
             _print( '> {}'.format( url) )
 
             onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
@@ -219,24 +271,81 @@ class ONENOTE:
                 if len(elements) >0 : elements = pd.concat( [ elements, onenote_elements ], ignore_index=True )
                 else: elements = onenote_elements.copy()
 
-                del onenote_elements
-
                 if '@odata.nextLink' in onenote_response:
                     url = onenote_response['@odata.nextLink']
                 else:
-                    run = False
+                    if (what == 'page'): 
+                        if len(onenote_elements) == 0:
+                            run = False
+                        else:
+                            page_count += len(onenote_elements)
+                            url='https://graph.microsoft.com/v1.0/me/onenote/pages'
+                    else:
+                        run = False
+
+                del onenote_elements
+
+        elements.drop_duplicates( inplace=True )
 
         _print( '{}: {} elements loaded'.format( what, len(elements) ) )
 
         return elements
 
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    # _get
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ===============================================================================================================================================
+    # _get_contents
+    # ===============================================================================================================================================
 
-    def _get_content( self, token, url ):
+    def _get_contents( self, token ):
 
-        return requests.get( url + "/$value", headers={'Authorization': 'Bearer ' + token} )
+        def _get_content( row ):
+            _print( '> {}'.format( row['contentUrl']) )
+            response = requests.get( row['contentUrl'].replace( "content", "$value"), headers={'Authorization': 'Bearer ' + self.token} )
+            if 'error' in response:
+                _print( '[{0}] error: {1} - {2}'.format(row['contentUrl'], response['error']['code'], response['error']['message']) )
+                return None
+            else:
+                return response.text
+
+        if 'contentUrl' in self.onenote_elements.columns.to_list():
+            _print( '', line=True, title='GET CONTENTS')
+
+            if 'content' not in self.onenote_elements.columns.to_list():
+                self.onenote_elements['content'] = None
+
+            cond = (~self.onenote_elements['contentUrl'].isna())
+            cond &= (self.onenote_elements['content'].isna())
+
+            _print( 'Recovering {} contents'. format(len(self.onenote_elements[cond])))
+
+            self.onenote_elements.loc[cond, 'content'] = self.onenote_elements[cond].apply(_get_content, axis='columns')
+            
+            cond = (~self.onenote_elements['contentUrl'].isna())
+            cond &= (self.onenote_elements['content'].isna())
+            _print( '  .. missing {} contents'. format(len(self.onenote_elements[cond])))
+
+    # ===============================================================================================================================================
+    # _get_resources
+    # ===============================================================================================================================================
+
+    def _get_resources( self, token ):
+
+        if 'contentUrl' in self.onenote_elements.columns.to_list():
+            _print( '', line=True, title='GET RESOURCES')
+
+            if 'resources' not in self.onenote_elements.columns.to_list():
+                self.onenote_elements['resources'] = None
+
+    # ===============================================================================================================================================
+    # _tweak_contents
+    # ===============================================================================================================================================
+
+    def _tweak_contents( self, token ):
+        _print( '', line=True, title='TWEAK CONTENT' )
+
+        if 'title' in self.onenote_elements.columns.to_list() and 'displayName' in self.onenote_elements.columns.to_list():
+            cond = ~self.onenote_elements['title'].isna()
+            cond &= self.onenote_elements['displayName'].isna()
+            self.onenote_elements.loc[cond, 'displayName'] = self.onenote_elements['title']
 
 def onenote( token, url ):
 
@@ -334,7 +443,7 @@ def onenote( token, url ):
 
 def onenote_clear():
 
-    out_dir = os.path.join( os.path.dirname(__file__), 'onenote' )
+    out_dir = os.path.join( os.path.dirname(__file__), 'onenote', 'files' )
     shutil.rmtree(out_dir)
     os.makedirs(out_dir)
 
