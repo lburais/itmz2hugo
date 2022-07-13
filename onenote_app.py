@@ -13,11 +13,6 @@ import platform
 
 import glob
 
-# pip3 install XlsxWriter
-# pip3 install openpyxl
-import xlsxwriter
-
-
 # #################################################################################################################################
 #
 # onenote_flask
@@ -37,39 +32,60 @@ class onenote_flask:
 
         onenote = ONENOTE(os.path.join( os.path.dirname(__file__), 'onenote'))
 
-        def action( clear=False, filename=None ):
-            if not session.get("user"):
-                return redirect(url_for("login"))
+        # ROOT
 
-            token = get_token(onenote_config.SCOPE)
+        @app.route("/")
+        def index():
+            return render_template('index.html')
 
-            if clear:
-                onenote.clear()
-                #jamstack_clear()
-            elif filename:
-                onenote_objects = onenote.get_all( token['access_token'], filename )
-                #jamstack_write( elements=onenote_objects, output=args.output )
-
+        # ONENOTE 
+        
+        @app.route("/onenote")
+        def msonenote():
             catalog = [ { 'filename': 'FORCE', 'name': 'FORCE' } ]
             for d in glob.glob(glob.escape(os.path.join( os.path.dirname(__file__), 'onenote')) + "/onenote*.xlsx"):
                 display =  os.path.basename(d).replace('onenote_', '').replace('.xlsx', '').replace('_', ' ').upper()
                 catalog += [ { 'filename': d, 'name': display } ]
             catalog.insert(1, { 'filename': catalog[-1]['filename'], 'name': 'LAST' } )
-            return catalog
 
-        @app.route("/")
-        def index():
-            return render_template('index.html', result=action() )
+            return render_template('onenote.html', result=catalog)
+
+        @app.route("/getonenote")
+        def getonenote():
+            if not session.get("user"):
+                return redirect(url_for("login"))
+
+            token = get_token(onenote_config.SCOPE)
+
+            file = request.args.get('filename')
+
+            onenote.get_all( token['access_token'], file )
+
+            return render_template('index.html')
+
+        # ITMZ 
+        
+        @app.route("/itmz")
+        def itmz():
+            return render_template('index.html' )
+
+        # NOTES
+        
+        @app.route("/notes")
+        def notes():
+            return render_template('index.html' )
+
+        # ACTIONS 
+        
+        @app.route("/clean")
+        def clean():
+            onenote.clean()
+            return render_template('index.html')
 
         @app.route("/clear")
         def clear():
-            action( 'clear')
-            return render_template('index.html', result=action(clear=True))
-
-        @app.route("/get")
-        def get():
-            file = request.args.get('filename')
-            return render_template('index.html', result=action(filename=file))
+            onenote.clear()
+            return render_template('index.html')
 
         ###############################################################################
 

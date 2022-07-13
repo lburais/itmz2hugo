@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block mainheader %}OneNote{% endblock %}
+{% block content %}
+    {% for x in result %}
+        <a class="btn btn-primary btn-sm" href="/getonenote?filename={{ x.filename }}" role="button">{{ x.name }}</a>
+    {% endfor %}
+{% endblock %}
