@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+    {% for x in result %}
+        <a class="btn btn-primary" href="/getonenote?filename={{ x.filename }}" role="button">{{ x.name }}</a>
+    {% endfor %}
+{% endblock %}

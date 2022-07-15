@@ -3,101 +3,139 @@
 import re
 import shutil
 import time
-import os
-
 import pprint
+from datetime import datetime
 import markdown
 from markdownify import markdownify
 from tabulate import tabulate
 import urllib.parse
 # from selenium import webdriver
 
+
 import xml.etree.ElementTree as ET
 import zipfile
-
-from datetime import datetime as dt
-
-# pip3 install pandas
-import pandas as pd
-
-from mytools import *
 
 # #################################################################################################################################
 # ITMZ
 # #################################################################################################################################
-# itmz = ITMZ( source=args.itmz, site=args.output, stack=stack, output=output )
-# itmz._parse_source( args.force or False )
 
-class ITMZ:
+class ITMZ2STACK:
 
+    _site = None
     _source = None
+    _stack = None
     _output = None
-
-    itmz_elements = pd.DataFrame()
-
-    directory = None
-    files_directory = None
-    timestamp = None
 
     # #############################################################################################################################
     # __init__
     # #############################################################################################################################
 
-    def __init__(self, directory):
-        self.directory = directory
-        self.files_directory = os.path.join( self.directory, 'itmz' )
+    def __init__(self, source, site, stack, output):
+        self._source = source
+        self._site = site
+        self._stack = stack
+        self._output = output
+
+        self._set_site()
 
     # #############################################################################################################################
-    # get_all
+    # _set_site
     # #############################################################################################################################
 
-    def get_all( self, source, force=False ):
+    def _set_site(self):
+        if self._stack == 'hugo': self._set_hugo_site()
+        elif self._stack == 'pelican': self._set_pelican_site()
+        elif self._stack == 'nikola': self._set_nikola_site()
 
-        self.timestamp = dt.now().strftime("%d_%b_%Y_%H_%M_%S")
-        self.itmz_elements = pd.DataFrame()
+    # #############################################################################################################################
+    # _set_pelican_site
+    # #############################################################################################################################
+
+    def _set_pelican_site(self):
+        pass
+
+    # #############################################################################################################################
+    # _set_nikola_site
+    # #############################################################################################################################
+
+    def _set_nikola_site(self):
+        pass
+
+    # #############################################################################################################################
+    # _set_hugo_site
+    # #############################################################################################################################
+
+    def _set_hugo_site(self):
+        shortcodes = {}
+        shortcodes['mybutton'] = '''
+<a {{ with .Get "href" }} href="{{ . }}" {{ end }}  {{ with .Get "target" }} target="{{ . }}" {{ end }} {{ with .Get "icon" }} class="{{ . }} btn btn-default" {{ end }}>
+{{ .Inner }}
+</a>
+        '''
+
+        shortcodes['myanchor'] = '''
+<a {{ with .Get "id" }} id="{{ . }}" {{ end }}></a>
+        '''
+
+        for key, shortcode in shortcodes.items():
+            out_file = os.path.join( self._site, "..", "layouts", "shortcodes", key + ".html")
+            out_dir = os.path.dirname(out_file)
+            if not os.path.isdir(out_dir):
+                os.makedirs(out_dir)
+
+            with open(out_file, 'w', encoding='utf-8') as fs:
+                fs.write(shortcode) 
+                fs.close() 
+
+        config = '''
+baseURL = 'http://pharaoh.local'
+languageCode = 'en-us'
+title = 'MindMap'
+theme = "shadocs"
+themesDir = "../themes"
+
+[markup]
+  defaultMarkdownHandler = 'goldmark'
+
+  [markup.tableOfContents]
+    endLevel = 7
+    ordered = false
+        '''
+        out_file = os.path.join( self._site, "..", "config.toml")
+        out_dir = os.path.dirname(out_file)
+        if not os.path.isdir(out_dir):
+            os.makedirs(out_dir)
+
+        with open(out_file, 'w', encoding='utf-8') as fs:
+            fs.write(config) 
+            fs.close() 
+
+    # #############################################################################################################################
+    # _parse_source
+    # #############################################################################################################################
+
+    def _parse_source( self, force=False ):
 
         files = []
-        if os.path.isdir( source ):
-            for top, dirs, filenames in os.walk( source, topdown=True ):
+        if os.path.isdir( self._source ):
+            for top, dirs, filenames in os.walk( self._source, topdown=True ):
                 for file in filenames:
                     if os.path.splitext(file)[1] == '.itmz': 
                         files.append(os.path.join(top, file))
 
         else:
-            files.append( source )
+            files.append( self._source )
 
-        myprint( files )
+        print( files )
 
         for file in files:
-            #self._process_file( file, force )
-
-            # read ITMZ file
-            ithoughts = zipfile.ZipFile( file, 'r')
-            xmldata = ithoughts.read('mapdata.xml')
-            elements = ET.fromstring(xmldata)
-
-            # get content
-            for element in elements.iter('topic'):
-                myprint( element )
-                element.attrib['source'] = 'itmz'
-                self.itmz_elements = self.itmz_elements.append( element.attrib, ignore_index=True )
-
-            # get resources
-
-            # load resources
-
-            # normalize
-
-            # set parents
-
-
-        return itmz_elements
+            self.process_file( file, force )
 
     # #############################################################################################################################
-    # _process_file
+    # process_file
     # #############################################################################################################################
 
-    def _process_file( self, file, force=False ):
+    def process_file( self, file, force=False ):
 
         structure = self._get_structure( file )
 
@@ -114,11 +152,11 @@ class ITMZ:
         out_time = datetime.fromtimestamp(os.path.getmtime(out_file)) if os.path.isfile(out_file) else None
         out_dir = os.path.dirname(out_file)
 
-        myprint( 'file: {}'.format(file))
-        myprint( '  out_dir: {}'.format(out_dir))
-        myprint( '  out_file: {}'.format(out_file))
-        myprint( '  out_time: {}'.format(out_time))
-        myprint( '  mod_time: {}'.format(mod_time))
+        print( 'file: {}'.format(file))
+        print( '  out_dir: {}'.format(out_dir))
+        print( '  out_file: {}'.format(out_file))
+        print( '  out_time: {}'.format(out_time))
+        print( '  mod_time: {}'.format(mod_time))
 
         # need to proceed?
         if force or not out_time or mod_time > out_time:
@@ -162,12 +200,12 @@ class ITMZ:
         structure['itmz'] = urllib.parse.unquote(base['itmz']) if base else structure['file']
         structure['title'] = os.path.basename(structure['file']).split(".")[0]
         structure['ext'] = os.path.splitext(structure['file'])[1]
-        structure['slug'] = self.slugify(structure['title'])
+        structure['slug'] = self._slugify(structure['title'])
         if not os.path.isabs(structure['file']):
             structure['file'] = os.path.join(os.path.split(structure['itmz'])[0], structure['file'])
 
         structure['abs path'] = os.path.split( os.path.join(self._site, os.path.relpath(structure['file'], self._source)))[0].split(os.path.sep)
-        for idx, val in enumerate(structure['abs path']): structure['abs path'][idx] = self.slugify(val)
+        for idx, val in enumerate(structure['abs path']): structure['abs path'][idx] = self._slugify(val)
 
         if self._stack == 'hugo':
             if structure['ext'].lower() != '.itmz':
@@ -199,6 +237,35 @@ class ITMZ:
             if key in structure: structure.pop(key)
 
         return structure
+
+    # #############################################################################################################################
+    # _slugify
+    # #############################################################################################################################
+
+    def _slugify(self, value):
+
+        # remove invalid chars (replaced by '-')
+        value = re.sub( r'[<>:"/\\|?*^%]', '-', value, flags=re.IGNORECASE )
+
+        # remove non-alphabetical/whitespace/'-' chars
+        value = re.sub( r'[^\w\s-]', '', value, flags=re.IGNORECASE )
+
+        # replace whitespace by '-'
+        value = re.sub( r'[\s]+', '-', value, flags=re.IGNORECASE )
+
+        # lower case
+        value = value.lower()
+
+        # reduce multiple whitespace to single whitespace
+        value = re.sub( r'[\s]+', ' ', value, flags=re.IGNORECASE)
+
+        # reduce multiple '-' to single '-'
+        value = re.sub( r'[-]+', '-', value, flags=re.IGNORECASE)
+
+        # strip
+        value = value.strip()
+
+        return value
 
     # #############################################################################################################################
     # _set_topics

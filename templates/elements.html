@@ -1,0 +1,16 @@
+{% extends "base_no_buttons.html" %}
+{% block mainheader %}Elements{% endblock %}
+{% block content %}
+    <a class="btn btn-success" href="/onenote" role="button">Parse OneNote</a>
+    <a class="btn btn-success" href="/itmz" role="button">Parse iThought</a>
+    <a class="btn btn-success" href="/notes" role="button">Parse Notes</a>
+    <a class="btn btn-success" href="/nikola" role="button">Write to Nikola</a>
+    <a class="btn btn-success" href="/update" role="button">Write to OneNote</a>
+    <a class="btn btn-success" href="/clear" role="button">Clear</a>
+    <a class="btn btn-success" href="/clean" role="button">Clean</a>
+    <a class="btn btn-danger" href="/logout" role="button">Logout</a>
+    <hr class="my-4">
+    {% for x in result %}
+        <a class="btn btn-primary btn-sm" href="/getfile?filename={{ x.filename }}" role="button">{{ x.name }}</a>
+    {% endfor %}
+{% endblock %}

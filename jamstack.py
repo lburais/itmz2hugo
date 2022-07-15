@@ -1,24 +1,44 @@
 import argparse
 import os
 
-###############################################################################
+import microsoft_config
+from onenote import *
+from itmz import *
+#from jamstack_write import *
+from mytools import *
 
-#                                    MAIN                                     #
+from flask import Flask, render_template, session, request, redirect, url_for
+from flask_session import Session
 
-###############################################################################
+import uuid
+
+import msal
+
+import platform
+
+import glob
+
+# #################################################################################################################################
+# MAIN
+# #################################################################################################################################
 
 if __name__ == "__main__":
+
+    # =============================================================================================================================
+    # arguments
+    # =============================================================================================================================
+
     parser = argparse.ArgumentParser(
         description="Transform OneNote or iThoughts source into files for static site generators.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    parser.add_argument(
-        '-i', '--input', dest='source', default='onenote',
-        help='Data source')
+    # parser.add_argument(
+    #     '-i', '--input', dest='source', default='onenote',
+    #     help='Data source')
 
     parser.add_argument(
-        '-o', '--output', dest='output', default='site/nikola',
+        '-o', '--output', dest='output', default='site',
         help='Output path')
 
     parser.add_argument(
@@ -57,14 +77,15 @@ if __name__ == "__main__":
     if args.html: args.generate='html'
     if args.md: args.generate='md'
 
-    if args.hugo: args.stack='hugo'
-    if args.pelican: args.stack='pelican'
-    if args.nikola: args.stack='nikola'
+    # =============================================================================================================================
+    # output folder
+    # =============================================================================================================================
+
+    args.output = os.path.join( args.output, args.stack )
 
     if os.path.exists(args.output):
         try:
-            # shutil.rmtree(args.output)
-            pass
+            shutil.rmtree(args.output)
         except OSError:
             error = 'Unable to remove the output folder: ' + args.output
             exit(error)
@@ -76,12 +97,188 @@ if __name__ == "__main__":
             error = 'Unable to create the output folder: ' + args.output
             exit(error)
 
-    if args.source == 'onenote':
-        from onenote_app import onenote_flask 
+    # =============================================================================================================================
+    # Elements
+    # =============================================================================================================================
+    # Must have columns:
+    #   - id
+    #   - source: [onenote | itmz | notes]
+    #   - what: [notebook | group | section | page]
+    #   - title
+    #   - created
+    #   - modified
+    #   - author
+    #   - slug
+    #   - parentId
+    #   - content
+    #   - path
+    #   - resources
+    #       - type: [image | fullres | object]
+    #       - name
+    #       - url
+    #       - filename
+    #       - uptodate
+    #       - path
+    #       - date
 
-        onenote_app = onenote_flask( args )
-    else:    
-        import itmz
+    DISPLAY_COLUMNS=['source','what','id','title']
 
-        itmz = ITMZ( source=args.itmz, site=args.output, stack=args.stack, output=args.generate )
-        itmz._parse_source()
+    elements = pd.DataFrame( { 'source': [nan] })
+
+    onenote = ONENOTE( os.path.join( os.path.dirname(__file__), 'files') )
+    itmz = ITMZ( os.path.join( os.path.dirname(__file__), 'files') )
+
+    # =============================================================================================================================
+    # Flask
+    # =============================================================================================================================
+
+    app = Flask(__name__)
+
+    app.config.from_object(microsoft_config)
+    Session(app)
+    app.debug = True
+
+    DIRECTORY = os.path.join( os.path.dirname(__file__), 'files')
+
+    # ROOT
+
+    @app.route("/")
+    def index():
+        return render_template('index.html', result=get_catalog(DIRECTORY))
+
+    # ELEMENTS 
+    
+    @app.route("/getfile")
+    def getfile():
+
+        filename = request.args.get('filename')
+
+        elements = load_excel( filename )
+
+        return render_template('elements.html', result=elements[DISPLAY_COLUMNS].to_dict('records'))
+
+    # ONENOTE 
+    
+    @app.route("/onenote")
+    def onenote_get():
+        global elements
+        
+        if not session.get("user"):
+            return redirect(url_for("login"))
+
+        token = get_token(microsoft_config.SCOPE)
+
+        onenote_elements = onenote.get_all( token['access_token'], elements )
+
+        elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
+
+        myprint(elements, line=True, prefix='', title='ELEMENTS')
+
+        return render_template('onenote.html', result=onenote_elements.to_dict('records'))
+
+    # ITMZ 
+    
+    @app.route("/itmz")
+    def itmz_get():
+        global elements
+
+        itmz_elements = itmz.get_all( "/Volumes/library/MindMap" )
+
+        elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
+
+        myprint(elements, line=True, prefix='', title='ELEMENTS')
+
+        return render_template('itmz.html', result=itmz_elements.to_dict('records') )
+
+    # NOTES
+    
+    @app.route("/notes")
+    def notes():
+        return render_template('index.html' )
+
+    # ACTIONS 
+    
+    @app.route("/clean")
+    def clean():
+        onenote.clean()
+        return render_template('index.html')
+
+    @app.route("/clear")
+    def clear():
+        onenote.clear()
+        return render_template('index.html')
+
+    # TOKEN CACHING AND AUTH FUNCTIONS
+
+    # Its absolute URL must match your app's redirect_uri set in AAD
+    @app.route("/getAToken")
+    def authorized():
+        if request.args['state'] != session.get("state"):
+            return redirect(url_for("login"))
+        cache = _load_cache()
+        result = _build_msal_app(cache).acquire_token_by_authorization_code(
+            request.args['code'],
+            scopes=microsoft_config.SCOPE,
+            redirect_uri=url_for("authorized", _external=True))
+        if "error" in result:
+            return "Login failure: %s, %s" % (
+                result["error"], result.get("error_description"))
+        session["user"] = result.get("id_token_claims")
+        _save_cache(cache)
+        return redirect(url_for("index"))
+
+    def _load_cache():
+        cache = msal.SerializableTokenCache()
+        if session.get("token_cache"):
+            cache.deserialize(session["token_cache"])
+        return cache
+
+    def _save_cache(cache):
+        if cache.has_state_changed:
+            session["token_cache"] = cache.serialize()
+
+    def _build_msal_app(cache=None, authority=None):
+        return msal.ConfidentialClientApplication(
+            microsoft_config.CLIENT_ID, authority=authority or microsoft_config.AUTHORITY,
+            client_credential=microsoft_config.CLIENT_SECRET, token_cache=cache)
+
+    def _get_token_from_cache(scope=None):
+        cache = _load_cache()  # This web app maintains one cache per session
+        cca = _build_msal_app(cache)
+        accounts = cca.get_accounts()
+        if accounts:  # So all accounts belong to the current signed-in user
+            result = cca.acquire_token_silent(scope, account=accounts[0])
+            _save_cache(cache)
+            return result
+
+    def get_token(scope):
+        token = _get_token_from_cache(scope)
+        if not token:
+            return redirect(url_for("login"))
+        return token
+
+    # LOGIN/LOGOUT FUNCTIONS
+
+    @app.route("/login")
+    def login():
+        session["state"] = str(uuid.uuid4())
+        auth_url = _build_msal_app().get_authorization_request_url(
+            microsoft_config.SCOPE,
+            state=session["state"],
+            redirect_uri=url_for("authorized", _external=True))
+        return "<a href='%s'>Login with Microsoft Identity</a>" % auth_url
+
+    @app.route("/logout")
+    def logout():
+        session.clear()  # Wipe out the user and the token cache from the session
+        return redirect(  # Also need to log out from the Microsoft Identity platform
+            "https://login.microsoftonline.com/common/oauth2/v2.0/logout"
+            "?post_logout_redirect_uri=" + url_for("index", _external=True))
+
+    # SERVE
+
+    if platform.system() == 'Darwin':
+        app.run(ssl_context='adhoc', host='0.0.0.0', port=8888)
+        # app.run(host='0.0.0.0')
+    else:
+        app.run(ssl_context='adhoc', host='0.0.0.0', port=8888)
