@@ -3,10 +3,11 @@ import re
 import pprint
 import glob
 
+from datetime import datetime as dt
+
 # pip3 install XlsxWriter
 # pip3 install openpyxl
 import xlsxwriter
-
 
 # pip3 install pandas
 import pandas as pd
@@ -20,6 +21,31 @@ nan = float('NaN')
 DEBUG = True
 
 timestamp = None
+
+# #################################################################################################################################
+# ELEMENT
+# #################################################################################################################################
+# Must have columns:
+#   - id
+#   - source: [onenote | itmz | notes]
+#   - what: [notebook | group | section | page | topic]
+#   - title
+#   - created
+#   - modified
+#   - authors
+#   - parent
+#   - body
+#   - resources
+#       - type: [image | fullres | object]
+#       - name
+#       - url
+#       - filename
+#       - date
+
+ELEMENT_COLUMNS=['source','what','id','title','created','modified','authors','parent','body','resources']
+
+def empty_elements():
+    return pd.DataFrame( columns = ELEMENT_COLUMNS )
 
 # #################################################################################################################################
 # INTERNAL FUNCTIONS
@@ -50,6 +76,10 @@ def slugify( value ):
 
     return value  
 
+# ===============================================================================================================================================
+# myprint
+# ===============================================================================================================================================
+
 def myprint( content, line=False, prefix='', title='' ):
     if DEBUG:
         if line:
@@ -60,20 +90,21 @@ def myprint( content, line=False, prefix='', title='' ):
         if isinstance(content, pd.DataFrame):
             pprint.pprint( content )
         elif content != '':
-            print('{}{}{}'.format(prefix, '' if prefix == '' else ' ', content))
+            print('    {}{}{}'.format(prefix, '' if prefix == '' else ' ', content))
 
 # ===============================================================================================================================================
 # get_catalog
 # ===============================================================================================================================================
 
 def get_catalog( directory ):
-        catalog = [ { 'filename': 'FORCE', 'name': 'FORCE' } ]
-        for d in glob.glob(glob.escape(directory) + "/jamstack*.xlsx"):
-            display =  os.path.basename(d).replace('jamstack_', '').replace('.xlsx', '').replace('_', ' ').upper()
+    catalog = [ { 'filename': 'FORCE', 'name': 'FORCE' } ]
+    for d in glob.glob(glob.escape(directory) + "/jamstack*.xlsx"):
+        display =  os.path.basename(d).replace('jamstack_', '').replace('.xlsx', '').replace('_', ' ').upper()
+        if os.path.getsize(d) > 0:
             catalog += [ { 'filename': d, 'name': display } ]
-        catalog.insert(1, { 'filename': catalog[-1]['filename'], 'name': 'LAST' } )
+    if len(catalog) > 1: catalog.insert(1, { 'filename': catalog[-1]['filename'], 'name': 'LAST' } )
 
-        return catalog
+    return catalog
 
 # ===============================================================================================================================================
 # load_excel
@@ -87,40 +118,45 @@ def load_excel( filename ):
             myprint( 'Loading {} file'.format(filename))
 
             try:
-                return pd.read_excel( filename, sheet_name='Elements', engine='openpyxl')
+                df = pd.read_excel( filename, sheet_name='Elements', engine='openpyxl')
+                myprint( "{} rows loaded.".format(len(df)), prefix="..." ) 
+                return df
             except:
                 myprint( "Something went wrong with file {}.".format(filename), prefix="..." ) 
                   
-    return pd.DataFrame()           
+    return empty_elements()         
 
 # ===============================================================================================================================================
 # save_excel
 # ===============================================================================================================================================
 
-def save_excel( directory, elements, type='' ):
+def save_excel( directory, elements, type=None ):
+    global timestamp
 
-    myprint( '', line=True, title='SAVE EXCEL')
+    myprint( '', line=True, title='SAVE EXCEL{}'.format( (' ' + type.upper()) if type else ''))
 
     try:
         if not timestamp: timestamp = dt.now().strftime("%d_%b_%Y_%H_%M_%S")
 
         for out_file in glob.glob(os.path.join( directory, 'jamstack_*_{}.xlsx'.format( timestamp ))):
-            myprint( "... removing {}".format(out_file) )
+            myprint( "removing {}".format(out_file), prefix='...' )
             os.remove( out_file )
 
-        name = 'jamstack{}_{}.xlsx'.format( '' if type == '' else ('_' + type), self.timestamp)
+        name = 'jamstack{}_{}.xlsx'.format( ('_' + type) if type else '', timestamp)
 
         out_file = os.path.join( directory, name )
         out_dir = os.path.dirname(out_file)
         if not os.path.isdir(out_dir):
             os.makedirs(out_dir)
 
-        writer = pd.ExcelWriter(out_file, sheet_name='Elements', engine='xlsxwriter')
+        writer = pd.ExcelWriter(out_file, engine='xlsxwriter')
         workbook  = writer.book
-        elements.to_excel( writer, index=False, na_rep='')
+        elements.to_excel( writer, sheet_name='Elements', index=False, na_rep='')
         writer.close()
 
-        myprint( "{} rows saved in file {}.".format(len(elements), out_file) )        
+        if not type : timestamp = None
+
+        myprint( "{} rows saved in file {}.".format(len(elements), out_file), prefix="..." )        
 
     except:
-        myprint( "Something went wrong with file {}.".format(out_file) )            
+        myprint( "Something went wrong with file {}.".format(out_file), prefix="..." )            

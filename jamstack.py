@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 
 import microsoft_config
 from onenote import *
@@ -68,6 +69,10 @@ if __name__ == "__main__":
         '--force', action='store_true', dest='force',
         help='Force refresh')
 
+    parser.add_argument(
+        '--https', action='store_true', dest='https',
+        help='HTTPS server')
+
     args = parser.parse_args()
 
     if args.hugo: args.stack='hugo'
@@ -98,35 +103,15 @@ if __name__ == "__main__":
             exit(error)
 
     # =============================================================================================================================
-    # Elements
+    # Variable
     # =============================================================================================================================
-    # Must have columns:
-    #   - id
-    #   - source: [onenote | itmz | notes]
-    #   - what: [notebook | group | section | page]
-    #   - title
-    #   - created
-    #   - modified
-    #   - author
-    #   - slug
-    #   - parentId
-    #   - content
-    #   - path
-    #   - resources
-    #       - type: [image | fullres | object]
-    #       - name
-    #       - url
-    #       - filename
-    #       - uptodate
-    #       - path
-    #       - date
 
-    DISPLAY_COLUMNS=['source','what','id','title']
+    DIRECTORY = os.path.join( os.path.dirname(__file__), 'files')
 
-    elements = pd.DataFrame( { 'source': [nan] })
+    elements = empty_elements()
 
-    onenote = ONENOTE( os.path.join( os.path.dirname(__file__), 'files') )
-    itmz = ITMZ( os.path.join( os.path.dirname(__file__), 'files') )
+    onenote = None
+    itmz = None
 
     # =============================================================================================================================
     # Flask
@@ -138,75 +123,110 @@ if __name__ == "__main__":
     Session(app)
     app.debug = True
 
-    DIRECTORY = os.path.join( os.path.dirname(__file__), 'files')
-
     # ROOT
 
     @app.route("/")
     def index():
-        return render_template('index.html', result=get_catalog(DIRECTORY))
+        global elements
+
+        elements = empty_elements()
+
+        return render_template('index.html', result= get_catalog(DIRECTORY) )
 
     # ELEMENTS 
     
+    @app.route("/element")
+    def element():
+        content = '<!DOCTYPE html><html lang="en"><head></head><body!>' + request.args.get('content') + '</body></html>'
+        return content
+
+    @app.route("/elements")
+    def elements():
+        global elements
+        return render_template('elements.html', result=elements.to_dict('records'))
+
     @app.route("/getfile")
     def getfile():
+        global elements
 
         filename = request.args.get('filename')
 
         elements = load_excel( filename )
 
-        return render_template('elements.html', result=elements[DISPLAY_COLUMNS].to_dict('records'))
+        return render_template('elements.html', result=elements.to_dict('records'))
 
     # ONENOTE 
     
     @app.route("/onenote")
     def onenote_get():
-        global elements
+        global onenote, elements
         
         if not session.get("user"):
             return redirect(url_for("login"))
 
         token = get_token(microsoft_config.SCOPE)
 
-        onenote_elements = onenote.get_all( token['access_token'], elements )
+        if onenote: del onenote
+        onenote = ONENOTE()
+
+        onenote_elements = onenote.read( directory = DIRECTORY,
+                                         token = token['access_token'], 
+                                         elements = elements )
 
         elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
 
-        myprint(elements, line=True, prefix='', title='ELEMENTS')
+        save_excel(DIRECTORY, elements)
 
-        return render_template('onenote.html', result=onenote_elements.to_dict('records'))
+        return render_template('elements.html', result=elements.to_dict('records'))
 
     # ITMZ 
     
     @app.route("/itmz")
     def itmz_get():
-        global elements
+        global itmz, elements
 
-        itmz_elements = itmz.get_all( "/Volumes/library/MindMap" )
+        if itmz: del itmz
+        itmz = ITMZ()
+
+        itmz_elements = itmz.read( directory = DIRECTORY,
+                                   source = "/Volumes/library/MindMap", 
+                                   elements = empty_elements() )
 
         elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
 
-        myprint(elements, line=True, prefix='', title='ELEMENTS')
+        save_excel(DIRECTORY, elements)
 
-        return render_template('itmz.html', result=itmz_elements.to_dict('records') )
+        return render_template('elements.html', result=elements.to_dict('records'))
 
     # NOTES
     
     @app.route("/notes")
     def notes():
-        return render_template('index.html' )
+        return render_template('index.html', result=get_catalog(DIRECTORY) )
 
     # ACTIONS 
     
     @app.route("/clean")
     def clean():
-        onenote.clean()
-        return render_template('index.html')
+        global elements
+
+        elements = empty_elements()
+
+        return render_template('elements.html', result=elements.to_dict('records'))
 
     @app.route("/clear")
     def clear():
-        onenote.clear()
-        return render_template('index.html')
+        global elements
+
+        myprint( '', line=True, title='CLEAR FILES')
+
+        return render_template('index.html', result=get_catalog(DIRECTORY) )
+
+        if os.path.isdir(DIRECTORY):
+            shutil.rmtree(DIRECTORY)
+        os.makedirs(DIRECTORY)
+
+        return render_template('elements.html', result=elements.to_dict('records'))
 
     # TOKEN CACHING AND AUTH FUNCTIONS
 
@@ -278,7 +298,9 @@ if __name__ == "__main__":
     # SERVE
 
     if platform.system() == 'Darwin':
-        app.run(ssl_context='adhoc', host='0.0.0.0', port=8888)
-        # app.run(host='0.0.0.0')
+        if args.https:
+            app.run(ssl_context='adhoc', host='0.0.0.0', port=8888)
+        else:
+            app.run(host='0.0.0.0')
     else:
         app.run(ssl_context='adhoc', host='0.0.0.0', port=8888)

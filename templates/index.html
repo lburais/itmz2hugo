@@ -1,11 +1,13 @@
-{% extends "base_no_buttons.html" %}
-{% block mainheader %}Welcome{% endblock %}
-{% block content %}
+{% extends "base.html" %}
+{% block mainheader %}Welcome to JamStack{% endblock %}
+{% block buttons %}
     <a class="btn btn-success" href="/clear" role="button">Clear</a>
     <a class="btn btn-success" href="/clean" role="button">Clean</a>
     <a class="btn btn-danger" href="/logout" role="button">Logout</a>
-    <hr class="my-4">
+    <hr>
+{% endblock %}
+{% block content %}
     {% for x in result %}
-        <a class="btn btn-primary btn-sm" href="/getfile?filename={{ x.filename }}" role="button">{{ x.name }}</a>
+        <a class="btn btn-secondary" href="/getfile?filename={{ x.filename }}" role="button">{{ x.name }}</a>
     {% endfor %}
 {% endblock %}

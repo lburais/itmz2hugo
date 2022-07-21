@@ -2,23 +2,21 @@
 <html lang="en">
 
 <head>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"
-        integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"
-        integrity="sha384-wfSDF2E50Y2D1uUdj0O3uMBJnjuUD4Ih7YwaYd1iqfktj0Uod8GCExl3Og8ifwB6"
-        crossorigin="anonymous"></script>
-    <title>Jamstack - {% block title %}{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.1/dist/css/bootstrap.min.css" rel="stylesheet" 
+        integrity="sha384-+0n0xVW2eSR5OomGNYDnhzAbDsOXxcvSN1TPprVMTNDbiYZCxYbOOl7+AMvyTG2x" crossorigin="anonymous">
+
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap5.css">
+    
+    <title>Jamstack{% block title %}{% endblock %}</title>
 </head>
 
 <body>
-    <div class="container mt-4">
-        <div class="jumbotron">
-            <h1 class="display-4">Jamstack - {% block mainheader %}{% endblock %}</h1>
-            <a class="btn btn-primary btn-md" href="/" role="button">Back Home</a>
-            <hr class="my-4">
-
-            <div id="content">{% block content %}{% endblock %}</div>
-        </div>
+    <div class="container">
+        <h1>{% block mainheader %}{% endblock %}</h1>
+        <hr>
+        {% block buttons %}{% endblock %}
+        {% block content %}{% endblock %}
+        {% block elements %}{% endblock %}
     </div>
 </body>
 
