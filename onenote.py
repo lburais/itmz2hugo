@@ -146,10 +146,8 @@ class ONENOTE:
                 return nan
             else:
                 soup = BeautifulSoup(response.text, features="html.parser")
-                if len(soup.body.contents) > 0:
-                    return str( soup.body.contents[1] )
-                else:
-                    return ''
+                return str( soup.body.contents[1] ) if (len(soup.body.contents) > 0) else ' '
+                # one space to avoid empty considered as nan
 
         if 'onenote_contentUrl' in _elements.columns.to_list():
             myprint( '', line=True, title='GET ONENOTE CONTENTS')
@@ -415,8 +413,6 @@ class ONENOTE:
         # load resources
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        myprint( '', line=True, title='LOAD ONENOTE RESOURCES')
-
         def _load_resource( resource ):
 
             if not resource['filename']:
@@ -461,23 +457,29 @@ class ONENOTE:
                     myprint( '[{}] {}: {} bytes'.format( resource['index'], resource['filename'], os.path.getsize(resource['filename']) ), prefix='  ...' )
 
                     resource['processed'] = True
+            else:
+                    resource['processed'] = True
 
             return resource
 
         cond = (~_elements['resources'].isna())
         resources = _elements[cond]['resources'].apply( lambda x: json.loads(x) )
-        if len(resources) > 0: resources = resources.apply(pd.Series).stack().reset_index(drop=True).apply(pd.Series)
+        if len(resources) > 0: 
+            myprint( '', line=True, title='LOAD ONENOTE RESOURCES')
 
-        nb = len(resources)
-        myprint( 'Processing {} resources'. format(nb))
-        resources['index'] = range(nb, 0, -1)        
-        resources['processed'] = False       
+            resources = resources.apply(pd.Series).stack().reset_index(drop=True).apply(pd.Series)
+
+            nb = len(resources)
+            myprint( 'Processing {} resources'. format(nb))
+            resources['index'] = range(nb, 0, -1)        
+            resources['processed'] = False       
             
-        if len(resources) > 0: resources = resources.apply(_load_resource, axis='columns')
+            if len(resources) > 0: 
+                resources = resources.apply(_load_resource, axis='columns')
 
-        myprint( '.. missing {} resources out of {}'. format(len(resources[resources['processed']==False]), nb))
+            myprint( '.. missing {} resources out of {}'. format(len(resources[resources['processed']==False]), nb))
 
-        save_excel(directory, _elements, 'onenote loaded')
+            save_excel(directory, _elements, 'onenote loaded')
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # set body
