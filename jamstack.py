@@ -1,3 +1,29 @@
+# ###################################################################################################################################################
+# Filename:     jamstack.py
+# 
+# - Author:     [Laurent Burais](mailto:lburais@cisco.com)
+# - Release:    
+# - Date:
+#
+# Configure:
+#   mkdir /Volumes/library
+#   mount_afp -i afp://Pharaoh.local/library /Volumes/library
+#
+#   cd /Volumes/library/Development/jamstack
+#   python3 -m venv venv
+#
+# Run:
+#   cd /Volumes/library/Development/jamstack
+#   source venv/bin/activate
+#   python3 jamstack.py --output site --nikola --html
+#   python3 jamstack.py --output site --nikola --https
+#
+#
+# Graph Explorer:
+#   https://developer.microsoft.com/fr-fr/graph/graph-explorer
+#
+# ###################################################################################################################################################
+
 import argparse
 import os
 import shutil
@@ -106,7 +132,7 @@ if __name__ == "__main__":
     # Variable
     # =============================================================================================================================
 
-    DIRECTORY = os.path.join( os.path.dirname(__file__), 'files')
+    DIRECTORY = os.path.join( os.path.dirname(__file__), 'static')
 
     elements = empty_elements()
 
@@ -136,12 +162,12 @@ if __name__ == "__main__":
     # ELEMENTS 
     
     @app.route("/element")
-    def element():
+    def one_element():
         content = '<!DOCTYPE html><html lang="en"><head></head><body!>' + request.args.get('content') + '</body></html>'
         return content
 
     @app.route("/elements")
-    def elements():
+    def display_elements():
         global elements
         return render_template('elements.html', result=elements.to_dict('records'))
 
@@ -210,7 +236,16 @@ if __name__ == "__main__":
     def clean():
         global elements
 
-        elements = empty_elements()
+        for col in ELEMENT_COLUMNS:
+            if col in elements.columns.to_list():
+                if col not in ['source']:
+                    elements[col] = nan
+
+        return render_template('elements.html', result=elements.to_dict('records'))
+
+    @app.route("/refresh")
+    def refresh():
+        global elements
 
         return render_template('elements.html', result=elements.to_dict('records'))
 
@@ -220,11 +255,11 @@ if __name__ == "__main__":
 
         myprint( '', line=True, title='CLEAR FILES')
 
-        return render_template('index.html', result=get_catalog(DIRECTORY) )
-
-        if os.path.isdir(DIRECTORY):
-            shutil.rmtree(DIRECTORY)
-        os.makedirs(DIRECTORY)
+        for d in os.listdir(DIRECTORY):
+            if os.path.isdir(os.path.join(DIRECTORY,d)):
+                myprint( 'Removing {}...'.format(os.path.join(DIRECTORY,d)) )
+                shutil.rmtree(os.path.join(DIRECTORY,d))
+                os.makedirs(os.path.join(DIRECTORY,d))
 
         return render_template('elements.html', result=elements.to_dict('records'))
 

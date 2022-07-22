@@ -1,30 +1,11 @@
-"""
-Filename:    onenote.py
-
-- Author:      [Laurent Burais](mailto:lburais@cisco.com)
-- Release:
-- Date:
-
-Dependencies:
-
-* TBC
-
-Run:
-mkdir /Volumes/library
-mount_afp -i afp://Pharaoh.local/library /Volumes/library
-
-cd /Volumes/library/Development/jamstack
-python3 -m venv venv
-source venv/bin/activate
-
-python3 -m pip install --upgrade pip
-pip3 install requests,flask,flask_session,msal,markdownify
-
-python3 jamstack.py --input onenote --output site/nikola --nikola --html
-
-Graph Explorer:
-https://developer.microsoft.com/fr-fr/graph/graph-explorer
-"""
+# ###################################################################################################################################################
+# Filename:     onenote.py
+# 
+# - Author:     [Laurent Burais](mailto:lburais@cisco.com)
+# - Release:
+# - Date:
+#
+# ###################################################################################################################################################
 
 import json
 import requests
@@ -107,8 +88,6 @@ class ONENOTE:
                         for col in onenote_objects.columns.to_list():
                             col_list[col] = 'onenote_{}'.format(col)
                         onenote_objects.rename( columns=col_list, inplace=True )
-                        onenote_objects['source'] = 'onenote'
-                        onenote_objects['what'] = what
 
                         if len(onenote) >0 : onenote = pd.concat( [ onenote, onenote_objects ], ignore_index=True )
                         else: onenote = onenote_objects.copy()
@@ -138,10 +117,10 @@ class ONENOTE:
             _elements = pd.concat( [ _elements, _get('section') ], ignore_index=True )
             _elements = pd.concat( [ _elements, _get('page') ], ignore_index=True )
 
-            if (len(_elements[_elements['what'].isin(['notebook'])]) == 0) \
-            or (len(_elements[_elements['what'].isin(['group'])]) == 0) \
-            or (len(_elements[_elements['what'].isin(['section'])]) == 0) \
-            or (len(_elements[_elements['what'].isin(['page'])]) == 0):
+            if (len(_elements[_elements['onenote_self'].str.contains("/notebooks/")]) == 0) \
+            or (len(_elements[_elements['onenote_self'].str.contains("/sectionGroups/")]) == 0) \
+            or (len(_elements[_elements['onenote_self'].str.contains("/sections/")]) == 0) \
+            or (len(_elements[_elements['onenote_self'].str.contains("/pages/")]) == 0):
                 # unable to load anything
                 return empty_elements()
 
@@ -248,8 +227,6 @@ class ONENOTE:
             # />
 
             for tag in soup.select('img[src]'):
-                del tag['alt']
-
                 resource = dict(empty)
                 resource['name'] = re.search( r'^.*resources/(.*?)!', tag['src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
                 resource['url'] = tag['src']
@@ -263,10 +240,6 @@ class ONENOTE:
                 resource['type'] = 'fullres'
 
                 resources += [ resource ]
-
-                del tag['height']
-
-                tag['width'] = 600
 
             for resource in resources:
                 path = resource['parent'].split('!')
@@ -303,20 +276,35 @@ class ONENOTE:
         myprint( '', line=True, title='SET ONENOTE PARENT' )
 
         _elements['parent'] = nan
-        _elements.loc[~_elements['onenote_parentNotebook.id'].isna(), 'parent'] = _elements['onenote_parentNotebook.id']
-        _elements.loc[~_elements['onenote_parentSectionGroup.id'].isna(), 'parent'] = _elements['onenote_parentSectionGroup.id']
-        _elements.loc[~_elements['onenote_parentSection.id'].isna(), 'parent'] = _elements['onenote_parentSection.id']
+
+        if 'onenote_parentNotebook.id' in _elements.columns.to_list():
+            _elements.loc[~_elements['onenote_parentNotebook.id'].isna(), 'parent'] = _elements['onenote_parentNotebook.id']
+        if 'onenote_parentSectionGroup.id' in _elements.columns.to_list():
+            _elements.loc[~_elements['onenote_parentSectionGroup.id'].isna(), 'parent'] = _elements['onenote_parentSectionGroup.id']
+        if 'onenote_parentSection.id' in _elements.columns.to_list():
+            _elements.loc[~_elements['onenote_parentSection.id'].isna(), 'parent'] = _elements['onenote_parentSection.id']
 
         save_excel(directory, _elements, 'onenote parent')
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
-        # merge elements content
+        # set childs
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        myprint( '', line=True, title='MERGE ONENOTE ELEMENTS' )
+        myprint( '', line=True, title='SET ONENOTE CHILDS' )
+
+        _elements['childs'] = nan
+
+        save_excel(directory, _elements, 'onenote childs')
+
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+        # reorganize elements
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+        # merge elements
+
+        myprint( '', line=True, title='REORGANIZE ONENOTE ELEMENTS' )
 
         def _find_page( row ):
-            cond = (_elements['what'].isin(['page']))
+            cond = (_elements['onenote_self'].str.contains("/pages/"))
             cond &= (_elements['tmp_name'].isin([row['tmp_name']]))
             cond &= (_elements['parent'].isin([row['onenote_id']]))
             found_pages = _elements[cond]
@@ -332,12 +320,15 @@ class ONENOTE:
                 row['tmp_found'] = found_pages['onenote_id'].to_list()
             return row
 
-        _elements['tmp_name'] = _elements['onenote_displayName']
-        cond = ~_elements['onenote_title'].isna()
-        cond &= _elements['tmp_name'].isna()
-        _elements.loc[cond, 'tmp_name'] = _elements['onenote_title']
+        _elements['tmp_name'] = nan
+        if 'onenote_displayName' in _elements.columns.to_list():
+            _elements['tmp_name'] = _elements['onenote_displayName']
+        if 'onenote_title' in _elements.columns.to_list():
+            cond = ~_elements['onenote_title'].isna()
+            cond &= _elements['tmp_name'].isna()
+            _elements.loc[cond, 'tmp_name'] = _elements['onenote_title']
 
-        cond = (~_elements['what'].isin(['page']))
+        cond = (~_elements['onenote_self'].str.contains("/pages/"))
         _elements['tmp_found'] = nan
         _elements[cond] = _elements[cond].apply(_find_page, axis='columns')
 
@@ -389,7 +380,7 @@ class ONENOTE:
         # cleanup
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        myprint( '', line=True, title='CLEANUP ONENOTE CONTENT' )
+        # myprint( '', line=True, title='CLEANUP ONENOTE CONTENT' )
 
         # drop columns
 
@@ -415,7 +406,7 @@ class ONENOTE:
         if 'onenote_contentUrl' in drop_list: drop_list.remove('onenote_contentUrl')
 
         # DO NOT DROP COLUMNS FOR NOW AS IT BREAKS THE LOAD
-        myprint( 'Drop list: {}'.format(drop_list))
+        # myprint( 'Drop list: {}'.format(drop_list))
         # _elements.drop( columns=drop_list, inplace=True )
 
         # save_excel(directory, _elements, 'onenote normalized')
@@ -458,13 +449,18 @@ class ONENOTE:
                     os.makedirs(out_dir)
 
                 data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
+                try:
+                    iserror = ('error' in data.json())
+                    if iserror:
+                        myprint( 'error: {} - {}'.format(data.json()['error']['code'], data.json()['error']['message']) )
+                except:
+                    iserror = False
+                    with open(resource['filename'], 'wb') as fs:
+                        fs.write(data.content) 
 
-                with open(resource['filename'], 'wb') as fs:
-                    fs.write(data.content) 
+                    myprint( '[{}] {}: {} bytes'.format( resource['index'], resource['filename'], os.path.getsize(resource['filename']) ), prefix='  ...' )
 
-                myprint( '[{}] {}: {} bytes'.format( resource['index'], resource['filename'], os.path.getsize(resource['filename']) ), prefix='  ...' )
-
-            resource['processed'] = True
+                    resource['processed'] = True
 
             return resource
 
@@ -478,7 +474,6 @@ class ONENOTE:
         resources['processed'] = False       
             
         if len(resources) > 0: resources = resources.apply(_load_resource, axis='columns')
-        #resources = resources.apply( _load_resource )
 
         myprint( '.. missing {} resources out of {}'. format(len(resources[resources['processed']==False]), nb))
 
@@ -489,7 +484,8 @@ class ONENOTE:
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
         def _body( element ):
-            if element['onenote_content']:
+            if element['onenote_content'] and (element['onenote_content'] == element['onenote_content']):
+
                 soup = BeautifulSoup( '<body>' + element['onenote_content'] + '</body>', features="html.parser" )
 
                 # absolute
@@ -505,46 +501,77 @@ class ONENOTE:
                     if (tag["style"].find("position:absolute") != -1):
                         del tag["style"]
 
+                # resize images
+
+                tags = soup.find_all( 'img' )
+                for tag in tags:
+                    del tag['width']
+                    del tag['height']
+
+                    tag['width'] = 1000
+
+                # resize objects
+
+                tags = soup.find_all( 'object' )
+                for tag in tags:
+                    del tag['width']
+                    del tag['height']
+
+                    tag['width'] = 1000
+
+                # stripped
+
                 if len(soup.body.contents) > 0:
                     element['body'] = str( soup.body.contents[0] )
                 
                 # resources
-                # ---------
+
                 # replace url by file
                 if element['resources'] == element['resources']:
                     for resource in json.loads(element['resources']):
                         if resource['filename']:
-                            element['body'] = element['body'].replace(resource['url'], resource['filename'])
+                            element['body'] = element['body'].replace( resource['url'], 
+                                                                       resource['filename'].replace( directory, 'static' )
+                                                                     )
 
             return element
 
-        myprint( '', line=True, title='SET ONENOTE BODY')
+        if 'onenote_content' in _elements.columns.to_list():
+            myprint( '', line=True, title='SET ONENOTE BODY')
 
-        cond = (~_elements['onenote_content'].isna())
-        _elements['body'] = nan
-        _elements.loc[cond, 'body'] = _elements[cond].apply( _body, axis='columns' )
+            cond = (~_elements['onenote_content'].isna())
+            _elements['body'] = nan
+            _elements.loc[cond, 'body'] = _elements[cond].apply( _body, axis='columns' )
         
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # normalize
         # -------------------------------------------------------------------------------------------------------------------------------------------
-        # normalized ['source','what','id','title','created','modified','author','parent','body','path','resources']
+        # normalized ['source','what','id','title','created','modified','author','parent','childs','body','path','resources']
 
         myprint( '', line=True, title='NORMALIZE ONENOTE')
 
         _elements['source'] = 'onenote'
 
-        # _elements['what'] set above from _get function
-        _elements['id'] = _elements['onenote_id']
+        # self="https://graph.microsoft.com/v1.0/users/laurent@burais.fr/onenote/notebooks/0-34CFFB16AE39C6B3!335711"
+        if 'onenote_self' in _elements.columns.to_list():
+            def _what( text ):
+                return re.search( r'^.*onenote/(.*?)/', text).group(1)
+            _elements['what'] = _elements['onenote_self'].apply( lambda x: re.search( r'^.*onenote/(.*?)/', x).group(1) )
 
-        _elements['title'] = _elements['onenote_title']
-        _elements.loc[_elements['title'].isna(), 'title'] = _elements['onenote_displayName']
+        if 'onenote_id' in _elements.columns.to_list(): _elements['id'] = _elements['onenote_id']
 
-        _elements['created'] = _elements['onenote_createdDateTime']
-        _elements['modified'] = _elements['onenote_lastModifiedDateTime']
+        if 'onenote_title' in _elements.columns.to_list(): _elements['title'] = _elements['onenote_title']
+        if 'onenote_displayName' in _elements.columns.to_list(): _elements.loc[_elements['title'].isna(), 'title'] = _elements['onenote_displayName']
 
-        #_elements['authors'] = _elements['lastModifiedDateTime']
+        if 'onenote_createdDateTime' in _elements.columns.to_list(): _elements['created'] = _elements['onenote_createdDateTime']
+        if 'onenote_lastModifiedDateTime' in _elements.columns.to_list(): _elements['modified'] = _elements['onenote_lastModifiedDateTime']
+
+        for col in ['onenote_createdBy.user.displayName', 'onenote_lastModifiedBy.user.displayName']:
+            if col in _elements.columns.to_list(): 
+                _elements.loc[~_elements[col].isna(), 'authors'] = _elements[col]
 
         # _elements['parent'] set above
+        # _elements['childs'] set above
         # _elements['body'] set above
         # _elements['resources'] set above
 

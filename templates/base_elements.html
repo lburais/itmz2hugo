@@ -3,9 +3,8 @@
 <table id="data" class="table table-striped">
     <thead>
         <tr>
-            <td>Source</td>
             <td>What</td>
-            <td>Id</td>
+            <td>IDs</td>
             <td>Title</td>            
             <td>Date</td>            
             <td>Author</td>            
@@ -15,9 +14,8 @@
     <tbody>
     {% for x in result %}
       <tr>
-        <td>{{ x.source }}</td>
-        <td>{{ x.what }}</td>
-        <td>{{ x.id }}</td>
+        <td>{{ x.source }}.{{ x.what }}</td>
+        <td>{{ x.id }}<br>{{ x.parent }}</td>
         <td>{{ x.title }}</td>
         <td>
           {% if x.modified > x.created %}
@@ -44,7 +42,6 @@
   $(document).ready(function () {
     $('#data').DataTable({
       columns: [
-        {orderable: true, searchable: true},
         {orderable: true, searchable: true},
         {orderable: false, searchable: true},
         {orderable: false, searchable: true},

@@ -34,6 +34,7 @@ timestamp = None
 #   - modified
 #   - authors
 #   - parent
+#   - childs
 #   - body
 #   - resources
 #       - type: [image | fullres | object]
@@ -42,7 +43,7 @@ timestamp = None
 #       - filename
 #       - date
 
-ELEMENT_COLUMNS=['source','what','id','title','created','modified','authors','parent','body','resources']
+ELEMENT_COLUMNS=['source','what','id','title','created','modified','authors','parent','childs','body','resources']
 
 def empty_elements():
     return pd.DataFrame( columns = ELEMENT_COLUMNS )
