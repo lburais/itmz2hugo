@@ -58,8 +58,11 @@
 import xml.etree.ElementTree as ET
 import zipfile
 import markdown
+import json
 
 from datetime import datetime as dt
+
+from tabulate import tabulate
 
 # pip3 install pandas
 import pandas as pd
@@ -158,7 +161,7 @@ class ITMZ:
 
         def _get_resource( element ):
             resources = []
-            if element['itmz_att-id']:
+            if element['itmz_att-id'] and (element['itmz_att-id'] == element['itmz_att-id']):
 
                 resource = { 'type': None, 'name': None, 'url': None, 'parent': None, 'filename': None, 'date': None }
 
@@ -169,87 +172,172 @@ class ITMZ:
 
                 resource['name'] = os.path.splitext(element['itmz_att-name'])[0]
 
-                resource['type'] = os.path.splitext(element['itmz_att-name'])[1]
+                if os.path.splitext(element['itmz_att-name'])[1] in ['jpg']:
+                    resource['type'] = 'image'
+                else:
+                    resource['type'] = 'object'
 
                 resource['url'] = os.path.join( "assets", element['itmz_att-id'], element['itmz_att-name'] )
 
                 resource['filename'] = os.path.join( _files_directory, 
-                                                     element['itmz_file'],
+                                                     element['itmz_file'].split('.')[0],
                                                      element['itmz_att-id'],
                                                      element['itmz_att-name'] )
 
-                return resource
+                resources += [ resource ]
+
+            if element['itmz_link'] and (element['itmz_link'] == element['itmz_link']):
+
+                resource = { 'type': None, 'name': None, 'url': None, 'parent': None, 'filename': None, 'date': None }
+
+                target = re.split( r":", element['itmz_link'])
+                if target[0] == 'http' or  target[0] == 'https': 
+                    resource['type'] = 'url'
+                    resource['title'] = element['itmz_link']
+                    resource['url'] = element['itmz_link']
+
+                elif target[0] == 'ithoughts':
+                    target = re.split( r"[?=&]+", target[1])
+                    if target[0] == '//open':
+                        if 'topic' in target: 
+                            ref = target[target.index('topic') + 1]
+                            resource['type'] = 'topic'
+                            resource['url'] = target[target.index('topic') + 1]
+
+                        elif 'path' in target: 
+                            resource['type'] = 'path'
+                            resource['url'] = target[target.index('path') + 1]
+
+                if resource['type']: resources += [ resource ]
+
+            if len(resources) > 0:
+                return json.dumps( resources )
             else:
                 return nan
 
-        if 'itmz_att-id' in _elements:
+        if ('itmz_att-id' in _elements) or ('itmz_link' in _elements):
             myprint( '', line=True, title='GET ITMZ RESOURCES')
 
-            if 'resources' not in _elements.columns.to_list():
-                _elements['resources'] = nan
+            _elements['resources'] = nan
 
-            cond = (~_elements['itmz_att-id'].isna())
-            cond = (~_elements['itmz_att-name'].isna())
-            cond &= (_elements['resources'].isna())
+            cond = ((~_elements['itmz_att-id'].isna()) & (~_elements['itmz_att-name'].isna()))
+            cond |= (~_elements['itmz_link'].isna())
 
             myprint( 'Parsing {} contents'. format(len(_elements[cond])))
 
             _elements.loc[cond, 'resources'] = _elements[cond].apply(_get_resource, axis='columns')
 
-            cond = (~_elements['itmz_att-id'].isna())
-            cond = (~_elements['itmz_att-name'].isna())
-            cond &= (_elements['resources'].isna())
+            cond = ((~_elements['itmz_att-id'].isna()) & (~_elements['itmz_att-name'].isna()))
+            cond |= (~_elements['itmz_link'].isna())
 
             if len(_elements[cond]) > 0: myprint( '.. missing {} contents'. format(len(_elements[cond])))       
                 
             save_excel(directory, _elements, 'itmz resources')
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
-        # get links
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        # -------------------------------------------------------------------------------------------------------------------------------------------
         # set parent
         # -------------------------------------------------------------------------------------------------------------------------------------------
         
+        def _set_parent( self, elements, parent=None ):
+            for element in elements:
+
+                if 'floating' in element.attrib and element.attrib['floating'] == '1':
+                    parent = None
+
+                if parent: 
+                    if '_level' in parent.attrib: element.attrib['_level'] = parent.attrib['_level'] + 1
+                    if 'uuid' in parent.attrib: 
+                        element.attrib['_parent'] = parent.attrib['uuid']
+
+                if not '_level' in element.attrib: element.attrib['_level'] = 0
+
+                self._set_parent( element, element )
+
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # set childs
         # -------------------------------------------------------------------------------------------------------------------------------------------
         
         # -------------------------------------------------------------------------------------------------------------------------------------------
-        # set path and tags
+        # set path
         # -------------------------------------------------------------------------------------------------------------------------------------------
         
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # expand data
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        
-        # self._merge_elements()
-
-        # save_excel(directory, self.onenote_elements, 'data')
-
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # set body
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
         def _body( element ):
-            # convert markdown to html
-            if (element['itmz_text'] == element['itmz_text']):
+            if ('itmz_text' in element) and (element['itmz_text'] == element['itmz_text']): 
+                element['body'] = ''
 
-                element['body'] = markdown.markdown( element['itmz_text'] )
-                
-            if (element['resources'] == element['resources']):
-            #     # resources
-            #     # ---------
-            #     # replace url by file
-            #     if element['resources'] == element['resources']:
-            #         for resource in json.loads(element['resources']):
-            #             if resource['filename']:
-            #                 element['body'] = element['body'].replace(resource['url'], resource['filename'])
-                pass
+                # first row is H1 / title
+                if element['itmz_text'][0] not in '[#`~]': element['body'] += '# '
+                element['body'] += element['itmz_text']
 
-            if element['itmz_link']:
-                pass
+                # convert code
+                element['body'] = re.sub( r'```', '~~~', element['body'], flags = re.MULTILINE )
+                #element['body'] = re.sub( r'~~~', '```', element['body'], flags = re.MULTILINE )
+
+                # add anchors to body
+                element['body'] = re.sub( r'^(?P<line>.*)', '\g<line> {#' + element['itmz_uuid'] + '}', element['body'], count = 1 )
+
+                # convert body to html
+                element['body'] = markdown.markdown( element['itmz_text'], extensions=['extra', 'nl2br'] )
+
+                # shift headers by level in body
+                #for h in range (6, 0, -1):
+                #    element['body'] = re.sub( r'h' + str(h) + r'>', 'h{}>'.format(h+level+1), element['body'], flags = re.MULTILINE )
+
+                # add anchors to body
+                if ('itmz_uuid' in element) and (element['itmz_uuid'] == element['itmz_uuid']):
+                    element['body'] = '<a id="{}">'.format(element['itmz_uuid']) + element['body']
+
+                # add task information to body
+                # tabulate
+                # table by row
+                # header
+                task_table = {}
+                task = { 'itmz_task-start': 'Start', 'itmz_task-due': 'Due', 'itmz_cost': 'Cost', 'itmz_task-effort': 'Effort', 
+                        'itmz_task-priority': 'Priority', 'itmz_task-progress': 'Progress', 'itmz_resources': 'Resource(s)' }
+                for key in task:
+                    if key in element:
+                        if key == 'task-progress':
+                            if element[key][-1] != "%": 
+                                if int(element[key]) > 100: continue
+                                element[key] += '%'
+                        if key == 'task-effort' and element[key][0] == '-': continue
+                        task_table[key] = [ element[key] ]
+
+                if len(task_table) > 0: 
+                    element['body'] += "\n"
+                    element['body'] += tabulate( task_table, headers="keys", tablefmt="html" )
+
+                # add resources to body
+                if ('resources' in element) and (element['resources'] == element['resources']):
+                    for resource in json.loads(element['resources']):
+                        # image
+                        if resource['type'] in ['image']:
+                            tag = '\n<img src="{}" title="{}" width="1000" />'
+                            element['body'] += tag.format( resource['url'],
+                                                           resource['name'] )
+                        # object
+                        elif resource['type'] in ['object']:
+                            tag= '\n<object data="{}" data-attachment="{}" type="application/{}" target="_blank" width="1000"></object>'
+                            ext = os.path.basename(resource['filename']).split('.')
+                            element['body'] += tag.format( resource['url'], 
+                                                           os.path.basename(resource['filename']),
+                                                           ext[1].lower() if len(ext) > 1 else 'pdf' )
+                        # link
+                        elif resource['type'] in ['url', 'topic', 'path']:
+                            tag= '\n<a href="{}" {} target="_blank" width="1000">{}</a>'
+                            element['body'] += tag.format( resource['url'], 
+                                                           'class="btn btn-default fa-solid fa-link"', 
+                                                           resource['name'] )
+
+                        if resource['filename']:
+                            element['body'] = element['body'].replace( resource['url'], 
+                                                                       resource['filename'].replace( directory, 'static' )
+                                                                     )
+
 
             return element
 

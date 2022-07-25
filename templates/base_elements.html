@@ -27,7 +27,7 @@
         <td>{{ x.authors }}</td>
         <td>
           {% if x.body is string %}
-            <a class="btn btn-secondary" href="/element?content={{ x.body }}"" target="_blank" role="button">Display</a>
+            <a class="btn btn-secondary" href="/element?id={{ x.id }}"" target="_blank" role="button">Display</a>
             -{{ x.body }}-
           {% endif %}
         </td>

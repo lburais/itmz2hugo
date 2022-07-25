@@ -163,7 +163,9 @@ if __name__ == "__main__":
     
     @app.route("/element")
     def one_element():
-        content = '<!DOCTYPE html><html lang="en"><head></head><body!>' + request.args.get('content') + '</body></html>'
+        element_id = request.args.get('id')
+        tmp = elements[elements['id'] == element_id]
+        content = '<!DOCTYPE html><html lang="en"><head></head><body!>' + tmp.iloc[0]['body'] if len(tmp) == 1 else 'body ???' + '</body></html>'
         return content
 
     @app.route("/elements")
