@@ -165,7 +165,7 @@ if __name__ == "__main__":
     def one_element():
         element_id = request.args.get('id')
         tmp = elements[elements['id'] == element_id]
-        content = '<!DOCTYPE html><html lang="en"><head></head><body!>' + tmp.iloc[0]['body'] if len(tmp) == 1 else 'body ???' + '</body></html>'
+        content = '<!DOCTYPE html><html lang="en"><head></head><body!>' + tmp.iloc[0]['body'] if len(tmp) == 1 else '[{}]: {} ???\n{}'.format(element_id, len(tmp), tmp) + '</body></html>'
         return content
 
     @app.route("/elements")
