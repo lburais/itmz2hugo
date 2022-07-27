@@ -48,6 +48,9 @@ ELEMENT_COLUMNS=['source','what','id','title','created','modified','authors','pa
 def empty_elements():
     return pd.DataFrame( columns = ELEMENT_COLUMNS )
 
+def empty_resource():
+    return { 'type': None, 'name': None, 'url': None, 'parent': None, 'filename': None, 'date': None, 'processed': False }
+
 # #################################################################################################################################
 # INTERNAL FUNCTIONS
 # #################################################################################################################################

@@ -55,6 +55,10 @@
 #
 # ###################################################################################################################################################
 
+import sys
+import os
+import re
+
 import xml.etree.ElementTree as ET
 import zipfile
 import markdown
@@ -92,19 +96,14 @@ class ITMZ:
 
     def read( self, directory, source, elements=empty_elements() ):
 
+        myprint( '', line=True, title='READ ITMZ ELEMENTS')
+
         _elements = elements[elements['source'].isin(['itmz'])].copy()
         _files_directory = os.path.join( directory, 'itmz' )
 
-        myprint( elements, 'ITMZ ELEMENTS')
-        
-        def _set_uuid( file, id ):
-            pass
-
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # get topics
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        myprint( '', line=True, title='GET ITMZ ELEMENTS')
+        # -------------------------------------------------------------------------------------------------------------------------
+        # parse ITMZ files
+        # -------------------------------------------------------------------------------------------------------------------------
 
         files = []
         if os.path.isdir( source ):
@@ -118,114 +117,156 @@ class ITMZ:
 
         for file in files:
 
-            myprint( file, prefix='>')
+            myprint( '', line=True, title='PARSE {} FILE'.format(file.upper()))
 
+            # ---------------------------------------------------------------------------------------------------------------------
             # read ITMZ file
+            # ---------------------------------------------------------------------------------------------------------------------
             ithoughts = zipfile.ZipFile( file, 'r')
             xmldata = ithoughts.read('mapdata.xml')
             elements = ET.fromstring(xmldata)
 
+            # ---------------------------------------------------------------------------------------------------------------------
+            # get elements
+            # ---------------------------------------------------------------------------------------------------------------------
             itmz = empty_elements()
 
-            # get elements
             for element in elements.iter('topic'):
-                parents = elements.findall('.//topic[@uuid="{}"]...'.format(element.attrib['uuid']))
 
+                # -----------------------------------------------------------------------------------------------------------------
+                # set parent
+                # -----------------------------------------------------------------------------------------------------------------
+                parents = elements.findall('.//topic[@uuid="{}"]...'.format(element.attrib['uuid']))
+                if (len(parents) > 0) and (parents[0].tag == 'topic'):
+                    element.attrib['parent'] = parents[0].attrib['uuid']
+
+                # -----------------------------------------------------------------------------------------------------------------
+                # set itmz specific
+                # -----------------------------------------------------------------------------------------------------------------
+                element.attrib['file'] = file
+                element.attrib['author'] = elements.attrib['author']
+                
+                # -----------------------------------------------------------------------------------------------------------------
+                # get attachments
+                # -----------------------------------------------------------------------------------------------------------------
+                att_resource = empty_resource()
+                if 'att-id' in element.attrib:
+
+                    if 'modified' in element.attrib: att_resource['date']  = element.attrib['modified']
+                    elif 'created' in element.attrib: att_resource['date']  = element.attrib['created']
+
+                    att_resource['name'] = element.attrib['att-name'].split('.')[0]
+
+                    IMAGES_EXT = ['jpg', 'jpeg', 'gif', 'png']
+                    ext = element.attrib['att-name'].split('.')[1] if (len(element.attrib['att-name'].split('.')) > 1) else''
+                    if ext.lower() in IMAGES_EXT:
+                        att_resource['type'] = 'image'
+                    else:
+                        att_resource['type'] = 'object'
+
+                    att_resource['url'] = os.path.join( "assets", element.attrib['att-id'], element.attrib['att-name'] )
+
+                    att_resource['filename'] = os.path.join( _files_directory, 
+                                                             os.path.basename(file).split('.')[0],
+                                                             element.attrib['att-id'],
+                                                             element.attrib['att-name'] )
+                                                        
+                # -----------------------------------------------------------------------------------------------------------------
+                # move attachments
+                # -----------------------------------------------------------------------------------------------------------------
+                if att_resource['filename']:
+                    # test dates to check if load is mandatory
+                    date_page = att_resource['date']
+                    date_page = dt.strptime(date_page, '%Y-%m-%dT%H:%M:%S')
+
+                    if os.path.isfile(att_resource['filename']):
+                        date_file = dt.fromtimestamp(os.path.getmtime( att_resource['filename'] ))
+                    else:
+                        date_file = date_page
+
+                    myprint( '{}...'.format(att_resource['url']), prefix='>')
+
+                    # load file
+                    if not os.path.isfile(att_resource['filename']) or (date_file < date_page):
+
+                        if not os.path.isfile(att_resource['filename']): myprint( 'missing file', prefix='...' )
+                        elif (date_file < date_page): myprint( 'outdated file', prefix='...' )
+
+                        out_dir = os.path.dirname(att_resource['filename'])
+
+                        if not os.path.isdir(out_dir):
+                            os.makedirs(out_dir)
+
+                        try:
+                            ithoughts = zipfile.ZipFile( file, 'r')
+                            data = ithoughts.read(att_resource['url'])
+
+                            with open(att_resource['filename'], 'wb') as fs: 
+                                fs.write(data) 
+
+                            att_resource['processed'] = True
+                        except:
+                            exc_type, exc_obj, exc_tb = sys.exc_info()
+                            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                            myprint("Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+
+                    else:
+                        att_resource['processed'] = True
+
+                    if os.path.isfile(att_resource['filename']):
+                        myprint( '{}: {} bytes'.format( att_resource['filename'], os.path.getsize(att_resource['filename']) ), prefix='...' )
+
+                # -----------------------------------------------------------------------------------------------------------------
+                # set links
+                # -----------------------------------------------------------------------------------------------------------------
+                link_resource = empty_resource()
+                if 'itmz_link' in element.attrib:
+
+                    target = re.split( r":", element.attrib['link'])
+                    if target[0] == 'http' or  target[0] == 'https': 
+                        link_resource['type'] = 'url'
+                        link_resource['title'] = element.attrib['link']
+                        link_resource['url'] = element.attrib['link']
+
+                    elif target[0] == 'ithoughts':
+                        target = re.split( r"[?=&]+", target[1])
+                        if target[0] == '//open':
+                            if 'topic' in target: 
+                                ref = target[target.index('topic') + 1]
+                                link_resource['type'] = 'topic'
+                                link_resource['url'] = target[target.index('topic') + 1]
+
+                            elif 'path' in target: 
+                                link_resource['type'] = 'path'
+                                link_resource['url'] = target[target.index('path') + 1]
+
+                # -----------------------------------------------------------------------------------------------------------------
+                # add resources attachments
+                # -----------------------------------------------------------------------------------------------------------------
+                resources = []
+                if att_resource['type']: resources += [ att_resource ]
+                if link_resource['type']: resources += [ link_resource ]
+
+                if len(resources) > 0: element.attrib['attachments'] = json.dumps( resources )
+
+                # -----------------------------------------------------------------------------------------------------------------
+                # convert to dataframe
+                # -----------------------------------------------------------------------------------------------------------------
                 itmz_objects = pd.DataFrame( element.attrib, index=['i',] )
                 col_list = {}
                 for col in itmz_objects.columns.to_list():
                     col_list[col] = 'itmz_{}'.format(col)
                 itmz_objects.rename( columns=col_list, inplace=True )
-                itmz_objects['itmz_file'] = file
-                itmz_objects['itmz_author'] = elements.attrib['author']
-                
-                if (len(parents) > 0) and (parents[0].tag == 'topic'):
-                    itmz_objects['itmz_parent'] = parents[0].attrib['uuid']
 
                 itmz = pd.concat( [ itmz, itmz_objects ], ignore_index=True )
 
-            myprint( '{} elements loaded'.format( len(itmz) ), prefix="..." )
-
+            myprint( '{} elements loaded'.format( len(itmz) ), prefix="#" )
+            
             _elements = pd.concat( [ _elements, itmz ], ignore_index=True )
 
         myprint( 'Nb of ITMZ elements = {}'.format(len(_elements)) )
 
         save_excel(directory, _elements, 'itmz elements')
-
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # get resources
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        def _get_resource( element ):
-            resources = []
-            if element['itmz_att-id'] and (element['itmz_att-id'] == element['itmz_att-id']):
-
-                resource = { 'type': None, 'name': None, 'url': None, 'parent': None, 'filename': None, 'date': None }
-
-                if ('itmz_created' in element) and (element['itmz_created'] == element['itmz_created']): 
-                    resource['date']  = element['itmz_created']
-                if ('itmz_modified' in element) and (element['itmz_modified'] == element['itmz_modified']): 
-                    resource['date']  = element['itmz_modified']
-
-                resource['name'] = element['itmz_att-name'].split('.')[0]
-
-                if (len(element['itmz_att-name'].split('.')) > 1) \
-                and element['itmz_att-name'].split('.')[1].lower() in ['jpg', 'jpeg', 'gif', 'png']:
-                    resource['type'] = 'image'
-                else:
-                    resource['type'] = 'object'
-
-                resource['url'] = os.path.join( "assets", element['itmz_att-id'], element['itmz_att-name'] )
-
-                resource['filename'] = os.path.join( _files_directory, 
-                                                     os.path.basename(element['itmz_file']).split('.')[0],
-                                                     element['itmz_att-id'],
-                                                     element['itmz_att-name'] )
-                                                    
-                resources += [ resource ]
-
-            if element['itmz_link'] and (element['itmz_link'] == element['itmz_link']):
-
-                resource = { 'type': None, 'name': None, 'url': None, 'parent': None, 'filename': None, 'date': None }
-
-                target = re.split( r":", element['itmz_link'])
-                if target[0] == 'http' or  target[0] == 'https': 
-                    resource['type'] = 'url'
-                    resource['title'] = element['itmz_link']
-                    resource['url'] = element['itmz_link']
-
-                elif target[0] == 'ithoughts':
-                    target = re.split( r"[?=&]+", target[1])
-                    if target[0] == '//open':
-                        if 'topic' in target: 
-                            ref = target[target.index('topic') + 1]
-                            resource['type'] = 'topic'
-                            resource['url'] = target[target.index('topic') + 1]
-
-                        elif 'path' in target: 
-                            resource['type'] = 'path'
-                            resource['url'] = target[target.index('path') + 1]
-
-                if resource['type']: resources += [ resource ]
-
-            if len(resources) > 0:
-                return json.dumps( resources )
-            else:
-                return nan
-
-        if ('itmz_att-id' in _elements) or ('itmz_link' in _elements):
-            myprint( '', line=True, title='GET ITMZ RESOURCES')
-
-            _elements['resources'] = nan
-
-            cond = ((~_elements['itmz_att-id'].isna()) & (~_elements['itmz_att-name'].isna()))
-            cond |= (~_elements['itmz_link'].isna())
-
-            myprint( 'Parsing {} contents'. format(len(_elements[cond])))
-
-            _elements.loc[cond, 'resources'] = _elements[cond].apply(_get_resource, axis='columns')
-
-            save_excel(directory, _elements, 'itmz resources')
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # set body
@@ -258,8 +299,8 @@ class ITMZ:
                     element['body'] = '<a id="{}">'.format(element['itmz_uuid']) + element['body']
 
                 # add resources to body
-                if ('resources' in element) and (element['resources'] == element['resources']):
-                    for resource in json.loads(element['resources']):
+                if ('resources' in element) and (element['itmz_attachments'] == element['itmz_attachments']):
+                    for resource in json.loads(element['itmz_attachments']):
                         # image
                         if resource['type'] in ['image']:
                             tag = '\n<img src="{}" title="{}" width="1000" />'
@@ -304,12 +345,12 @@ class ITMZ:
                     element['body'] += "\n\n"
                     element['body'] += tabulate( task_table, headers="keys", tablefmt="html" )
 
-            return element
+            return element['body']
 
         myprint( '', line=True, title='SET ITMZ BODY')
 
         cond = (~_elements['itmz_text'].isna())
-        cond |= (~_elements['resources'].isna())
+        cond |= (~_elements['itmz_attachments'].isna())
         cond |= (~_elements['itmz_link'].isna())
         _elements['body'] = nan
         _elements.loc[cond, 'body'] = _elements[cond].apply( _body, axis='columns' )        
@@ -350,79 +391,11 @@ class ITMZ:
                 return nan
         _elements['authors'] = _elements.apply( _set_author, axis='columns' )
 
-        # _elements['parent'] set above
-        # _elements['body'] set above
-        # _elements['resources'] set above
+        # _elements['body'] set below
 
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # load resources
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        def _load_resource( resource ):
-
-            if not resource['filename']:
-                myprint("[{}] no filename for {}".format(resource['index'], resource['url']), prefix='>')
-                return resource
-
-            # test dates to check if load is mandatory
-            date_page = resource['date']
-            date_page = dt.strptime(date_page, '%Y-%m-%dT%H:%M:%S')
-
-            if os.path.isfile(resource['filename']):
-                date_file = dt.fromtimestamp(os.path.getmtime( resource['filename'] ))
-            else:
-                date_file = date_page
-
-            myprint( '[{}] {}...'.format(resource['index'], resource['url'], prefix='>'))
-
-            # load file
-            if not os.path.isfile(resource['filename']) or (date_file < date_page):
-
-                if not os.path.isfile(resource['filename']): myprint( 'missing file', prefix='...' )
-                elif (date_file < date_page): myprint( 'outdated file', prefix='...' )
-
-                out_dir = os.path.dirname(resource['filename'])
-
-                if not os.path.isdir(out_dir):
-                    os.makedirs(out_dir)
-
-                try:
-                    data = ithoughts.read(resource['url'])
-
-                    with open(resource['filename'], 'wb') as fs: 
-                        fs.write(data) 
-
-                    resource['processed'] = True
-                except:
-                    myprint("something wrong from {} to {}".format(resource['url'], resource['filename']), prefix='...')
-
-            else:
-                    resource['processed'] = True
-
-            if os.path.isfile(resource['filename']):
-                myprint( '{}: {} bytes'.format( resource['filename'], os.path.getsize(resource['filename']) ), prefix='...' )
-
-            return resource
-
-        cond = (~_elements['resources'].isna())
-        resources = _elements[cond]['resources'].apply( lambda x: json.loads(x) )
-        if len(resources) > 0: 
-            myprint( '', line=True, title='LOAD ITMZ RESOURCES')
-
-            resources = resources.apply(pd.Series).stack().reset_index(drop=True).apply(pd.Series)
-            resources = resources[resources['type'].isin(['image','object'])]
-
-            nb = len(resources)
-            myprint( 'Processing {} resources'. format(nb))
-            resources['index'] = range(nb, 0, -1)        
-            resources['processed'] = False       
-            
-            if len(resources) > 0: 
-                resources = resources.apply(_load_resource, axis='columns')
-
-            myprint( '.. missing {} resources out of {}'. format(len(resources[resources['processed']==False]), nb))
-
-            save_excel(directory, _elements, 'itmz loaded')
+        _elements['resources'] = _elements['itmz_attachments']
+        _elements['parent'] = _elements['itmz_parent']
+        _elements.drop( columns=[ 'itmz_attachments', 'itmz_parent' ], inplace=True )
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # save excel
