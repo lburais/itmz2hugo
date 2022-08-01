@@ -29,6 +29,7 @@ timestamp = None
 #   - id
 #   - source: [onenote | itmz | notes]
 #   - what: [notebook | group | section | page | topic]
+#   - type: [page | post | comment]
 #   - title
 #   - created
 #   - modified
@@ -43,7 +44,7 @@ timestamp = None
 #       - filename
 #       - date
 
-ELEMENT_COLUMNS=['source','what','id','title','created','modified','authors','parent','childs','body','resources']
+ELEMENT_COLUMNS=['source','what','type','id','title','created','modified','authors','parent','childs','body','resources']
 
 def empty_elements():
     return pd.DataFrame( columns = ELEMENT_COLUMNS )

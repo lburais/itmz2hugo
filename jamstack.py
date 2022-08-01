@@ -29,9 +29,11 @@ import os
 import shutil
 
 import microsoft_config
-from onenote import *
-from itmz import *
-#from jamstack_write import *
+
+import onenote
+import itmz
+import nikola
+
 from mytools import *
 
 from flask import Flask, render_template, session, request, redirect, url_for
@@ -132,12 +134,10 @@ if __name__ == "__main__":
     # Variable
     # =============================================================================================================================
 
-    DIRECTORY = os.path.join( os.path.dirname(__file__), 'static')
+    FOLDER_STATIC = os.path.join( os.path.dirname(__file__), 'static')
+    FOLDER_SITE = os.path.join( os.path.dirname(__file__), 'site')
 
     elements = empty_elements()
-
-    onenote = None
-    itmz = None
 
     # =============================================================================================================================
     # Flask
@@ -157,7 +157,7 @@ if __name__ == "__main__":
 
         elements = empty_elements()
 
-        return render_template('index.html', result= get_catalog(DIRECTORY) )
+        return render_template('index.html', result= get_catalog(FOLDER_STATIC) )
 
     # ELEMENTS 
     
@@ -183,54 +183,79 @@ if __name__ == "__main__":
 
         return render_template('elements.html', result=elements.to_dict('records'))
 
+    # ALL 
+
+    def _read( what='all' ):
+        global elements
+
+        if what in ['all', 'onenote']:
+
+            if not session.get("user"):
+                return redirect(url_for("login"))
+
+            token = get_token(microsoft_config.SCOPE)
+
+            onenote_elements = onenote.read( directory = FOLDER_STATIC,
+                                            token = token['access_token'], 
+                                            elements = elements )
+
+            elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
+
+        if what in ['all', 'itmz']:
+
+            itmz_elements = itmz.read( directory = FOLDER_STATIC,
+                                       source = "/Volumes/library/MindMap", 
+                                       elements = empty_elements() )
+
+            elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
+        
+        if what in ['all', 'notes']:
+            pass
+        
+        save_excel(FOLDER_STATIC, elements)
+
+    @app.route("/all")
+    def all_read():
+        global elements
+        _read( 'all' )
+        return render_template('elements.html', result=elements.to_dict('records'))
+
     # ONENOTE 
     
     @app.route("/onenote")
-    def onenote_get():
-        global onenote, elements
-        
-        if not session.get("user"):
-            return redirect(url_for("login"))
-
-        token = get_token(microsoft_config.SCOPE)
-
-        if onenote: del onenote
-        onenote = ONENOTE()
-
-        onenote_elements = onenote.read( directory = DIRECTORY,
-                                         token = token['access_token'], 
-                                         elements = elements )
-
-        elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
-
-        save_excel(DIRECTORY, elements)
-
+    def onenote_read():
+        global elements
+        _read( 'onenote' )
         return render_template('elements.html', result=elements.to_dict('records'))
 
     # ITMZ 
     
     @app.route("/itmz")
-    def itmz_get():
-        global itmz, elements
-
-        if itmz: del itmz
-        itmz = ITMZ()
-
-        itmz_elements = itmz.read( directory = DIRECTORY,
-                                   source = "/Volumes/library/MindMap", 
-                                   elements = empty_elements() )
-
-        elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
-
-        save_excel(DIRECTORY, elements)
-
+    def itmz_read():
+        global elements
+        _read( 'itmz' )
         return render_template('elements.html', result=elements.to_dict('records'))
 
     # NOTES
     
     @app.route("/notes")
-    def notes():
-        return render_template('index.html', result=get_catalog(DIRECTORY) )
+    def notes_read():
+        global elements
+        _read( 'notes' )
+        return render_template('elements.html', result=elements.to_dict('records'))
+
+    # NIKOLA
+    
+    @app.route("/nikola")
+    def nikola_write():
+        global elements
+
+        elements = nikola.write( directory = FOLDER_SITE,
+                                 elements = elements )        
+
+        save_excel(FOLDER_STATIC, elements)
+
+        return render_template('elements.html', result=elements.to_dict('records'))
 
     # ACTIONS 
     
@@ -257,11 +282,9 @@ if __name__ == "__main__":
 
         myprint( '', line=True, title='CLEAR FILES')
 
-        for d in os.listdir(DIRECTORY):
-            if os.path.isdir(os.path.join(DIRECTORY,d)):
-                myprint( 'Removing {}...'.format(os.path.join(DIRECTORY,d)) )
-                shutil.rmtree(os.path.join(DIRECTORY,d))
-                os.makedirs(os.path.join(DIRECTORY,d))
+        nikola.clear( directory=FOLDER_SITE )
+        itmz.clear( directory=FOLDER_STATIC, elements=elements )
+        onenote.clear( directory=FOLDER_STATIC, elements=elements, all=False )
 
         return render_template('elements.html', result=elements.to_dict('records'))
 

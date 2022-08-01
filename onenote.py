@@ -6,11 +6,20 @@
 # - Date:
 #
 # ###################################################################################################################################################
+# todo
+#
+#   1. clear: encoding for resource.filename vs. os.walk
+#   2. recombine object+image+link (shared from iPad)
+#   3. recombine image+object+link (shared from Mac)
+#
+# ###################################################################################################################################################
 
 import json
 import requests
 import re
 import os
+import sys
+import shutil
 
 from datetime import datetime as dt
 from bs4 import BeautifulSoup
@@ -21,33 +30,18 @@ import pandas as pd
 from mytools import *
 
 # ###################################################################################################################################################
-# ONENOTE
+# READ
 # ###################################################################################################################################################
 
-class ONENOTE:
+def read( directory, token, elements=empty_elements() ): 
 
+    _elements = elements[elements['source'].isin(['onenote'])].copy()
+    _files_directory = os.path.join( directory, 'onenote' )
 
-    _timestamp = None
+    myprint( elements, 'ONENOTE ELEMENTS')
 
-    # ===============================================================================================================================================
-    # __init__
-    # ===============================================================================================================================================
-
-    def __init__( self ): 
-
-        pass
-
-    # ===============================================================================================================================================
-    # read
-    # ===============================================================================================================================================
-
-    def read( self, directory, token, elements=empty_elements() ): 
-
-        _elements = elements[elements['source'].isin(['onenote'])].copy()
-        _files_directory = os.path.join( directory, 'onenote' )
-
-        myprint( elements, 'ONENOTE ELEMENTS')
-        
+    try:
+    
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # get elements
         # -------------------------------------------------------------------------------------------------------------------------------------------
@@ -72,43 +66,47 @@ class ONENOTE:
                         url += '?$top={}'.format(page_nb)
                         if page_count > 0: url += '&$skip={}'.format(page_count)
 
-                    myprint( '> {}'.format( url) )
+                    myprint( '{}'.format( url), prefix='>' )
 
-                    onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
+                    try:
+                        onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
 
-                    if 'error' in onenote_response:
-                        myprint( '[{0:<8}] error: {1} - {2}'.format(what, onenote_response['error']['code'], onenote_response['error']['message']) )
-                        run = False
-                    else:
-                        if 'value' not in onenote_response: onenote_objects = { 'value': [ onenote_response ] }
-                        else: onenote_objects = onenote_response
-
-                        onenote_objects = pd.json_normalize(onenote_objects['value'])
-                        col_list = {}
-                        for col in onenote_objects.columns.to_list():
-                            col_list[col] = 'onenote_{}'.format(col)
-                        onenote_objects.rename( columns=col_list, inplace=True )
-
-                        if len(onenote) >0 : onenote = pd.concat( [ onenote, onenote_objects ], ignore_index=True )
-                        else: onenote = onenote_objects.copy()
-
-                        if '@odata.nextLink' in onenote_response:
-                            url = onenote_response['@odata.nextLink']
+                        if 'error' in onenote_response:
+                            myprint( '[{0:<8}] error: {1} - {2}'.format(what, onenote_response['error']['code'], onenote_response['error']['message']) )
+                            run = False
                         else:
-                            if (what == 'page'): 
-                                if len(onenote_objects) == 0:
-                                    run = False
-                                else:
-                                    page_count += len(onenote_objects)
-                                    url='https://graph.microsoft.com/v1.0/me/onenote/pages'
-                            else:
-                                run = False
+                            if 'value' not in onenote_response: onenote_objects = { 'value': [ onenote_response ] }
+                            else: onenote_objects = onenote_response
 
-                        del onenote_objects
+                            onenote_objects = pd.json_normalize(onenote_objects['value'])
+                            col_list = {}
+                            for col in onenote_objects.columns.to_list():
+                                col_list[col] = 'onenote_{}'.format(col)
+                            onenote_objects.rename( columns=col_list, inplace=True )
+
+                            if len(onenote) >0 : onenote = pd.concat( [ onenote, onenote_objects ], ignore_index=True )
+                            else: onenote = onenote_objects.copy()
+
+                            if '@odata.nextLink' in onenote_response:
+                                url = onenote_response['@odata.nextLink']
+                            else:
+                                if (what == 'page'): 
+                                    if len(onenote_objects) == 0:
+                                        run = False
+                                    else:
+                                        page_count += len(onenote_objects)
+                                        url='https://graph.microsoft.com/v1.0/me/onenote/pages'
+                                else:
+                                    run = False
+
+                            del onenote_objects
+                    except:
+                        exc_type, exc_obj, exc_tb = sys.exc_info()
+                        myprint( 'error: {}'.format(exc_obj), prefix='...' )
 
                 onenote.drop_duplicates( inplace=True )
 
-                myprint( '{}: {} elements loaded'.format( what, len(onenote) ) )
+                myprint( '{}: {} elements loaded'.format( what, len(onenote) ), prefix="..." )
 
                 return onenote
 
@@ -117,16 +115,7 @@ class ONENOTE:
             _elements = pd.concat( [ _elements, _get('section') ], ignore_index=True )
             _elements = pd.concat( [ _elements, _get('page') ], ignore_index=True )
 
-            if (len(_elements[_elements['onenote_self'].str.contains("/notebooks/")]) == 0) \
-            or (len(_elements[_elements['onenote_self'].str.contains("/sectionGroups/")]) == 0) \
-            or (len(_elements[_elements['onenote_self'].str.contains("/sections/")]) == 0) \
-            or (len(_elements[_elements['onenote_self'].str.contains("/pages/")]) == 0):
-                # unable to load anything
-                return empty_elements()
-
             myprint( 'Nb elements = {}'.format(len(_elements)) )
-
-            save_excel(directory, _elements, 'onenote elements')
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # get contents
@@ -135,19 +124,24 @@ class ONENOTE:
         def _get_content( row ):
             myprint( '> [{}] {}'.format( int(row['index']), row['onenote_contentUrl'] ))
             
-            response = requests.get( row['onenote_contentUrl'].replace( "content", "$value"), headers={'Authorization': 'Bearer ' + token} )
             try:
-                iserror = ('error' in response.json())
-            except:
-                iserror = False
+                response = requests.get( row['onenote_contentUrl'].replace( "content", "$value"), headers={'Authorization': 'Bearer ' + token} )
+                try:
+                    iserror = ('error' in response.json())
+                except:
+                    iserror = False
 
-            if iserror:
-                myprint( 'error: {} - {}'.format(response.json()['error']['code'], response.json()['error']['message']) )
+                if iserror:
+                    myprint( 'error: {} - {}'.format(response.json()['error']['code'], response.json()['error']['message']) )
+                    return nan
+                else:
+                    soup = BeautifulSoup(response.text, features="html.parser")
+                    return str( soup.body.contents[1] ) if (len(soup.body.contents) > 0) else '<br>'
+                    # <br> to avoid empty considered as nan
+            except:
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                myprint( 'error: {}'.format(exc_obj), prefix='...' )
                 return nan
-            else:
-                soup = BeautifulSoup(response.text, features="html.parser")
-                return str( soup.body.contents[1] ) if (len(soup.body.contents) > 0) else ' '
-                # one space to avoid empty considered as nan
 
         if 'onenote_contentUrl' in _elements.columns.to_list():
             myprint( '', line=True, title='GET ONENOTE CONTENTS')
@@ -172,8 +166,6 @@ class ONENOTE:
 
             if len(_elements[cond]) > 0: myprint( '.. missing {} contents out of {}'. format(len(_elements[cond]), nb))
 
-            save_excel(directory, _elements, 'onenote contents')
-
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # get resources
         # -------------------------------------------------------------------------------------------------------------------------------------------
@@ -184,7 +176,7 @@ class ONENOTE:
 
             resources = []
 
-            empty = { 'type': None, 'name': None, 'url': None, 'filename': None, 'parent': None, 'date': None }
+            empty = empty_resource()
 
             empty['parent'] = row['onenote_id']
             if ('onenote_createdDateTime' in row) and (row['onenote_createdDateTime'] == row['onenote_createdDateTime']): 
@@ -243,29 +235,33 @@ class ONENOTE:
                 path = resource['parent'].split('!')
                 path.reverse()
                 resource['filename'] = os.path.join( _files_directory, 
-                                                     os.path.sep.join(path),
-                                                     resource['name'] )
+                                                    os.path.sep.join(path),
+                                                    resource['name'] )
 
 
-            if len(resources) > 0: return json.dumps( resources )
-            else: return nan
+            return json.dumps( resources )
+
+            #if len(resources) > 0: return json.dumps( resources )
+            #else: return nan
 
         if 'onenote_content' in _elements.columns.to_list():
             myprint( '', line=True, title='GET ONENOTE RESOURCES')
+            
+            if 'onenote_attachments' not in _elements:
+                _elements['onenote_attachments'] = nan
 
             cond = (~_elements['onenote_content'].isna())
-            cond &= (_elements['resources'].isna())
+            cond &= (_elements['onenote_attachments'].isna())
 
-            myprint( 'Parsing {} contents'. format(len(_elements[cond])))
+            myprint( 'Processing {} attachments out of {} contents'. format( len(_elements[cond]), 
+                                                                             len(_elements[(~_elements['onenote_content'].isna())])))
 
-            _elements.loc[cond, 'resources'] = _elements[cond].apply(_get_resource, axis='columns')
+            _elements.loc[cond, 'onenote_attachments'] = _elements[cond].apply(_get_resource, axis='columns')
 
             cond = (~_elements['onenote_content'].isna())
-            cond &= (_elements['resources'].isna())
+            cond &= (_elements['onenote_attachments'].isna())
 
-            if len(_elements[cond]) > 0: myprint( 'missing {} contents'. format(len(_elements[cond])), prefix="...")
-
-            save_excel(directory, _elements, 'onenote resources')
+            if len(_elements[cond]) > 0: myprint( 'missing {} attachments'. format(len(_elements[cond])), prefix="...")
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # set parent
@@ -273,26 +269,14 @@ class ONENOTE:
 
         myprint( '', line=True, title='SET ONENOTE PARENT' )
 
-        _elements['parent'] = nan
+        _elements['onenote_parent'] = nan
 
         if 'onenote_parentNotebook.id' in _elements.columns.to_list():
-            _elements.loc[~_elements['onenote_parentNotebook.id'].isna(), 'parent'] = _elements['onenote_parentNotebook.id']
+            _elements.loc[~_elements['onenote_parentNotebook.id'].isna(), 'onenote_parent'] = _elements['onenote_parentNotebook.id']
         if 'onenote_parentSectionGroup.id' in _elements.columns.to_list():
-            _elements.loc[~_elements['onenote_parentSectionGroup.id'].isna(), 'parent'] = _elements['onenote_parentSectionGroup.id']
+            _elements.loc[~_elements['onenote_parentSectionGroup.id'].isna(), 'onenote_parent'] = _elements['onenote_parentSectionGroup.id']
         if 'onenote_parentSection.id' in _elements.columns.to_list():
-            _elements.loc[~_elements['onenote_parentSection.id'].isna(), 'parent'] = _elements['onenote_parentSection.id']
-
-        save_excel(directory, _elements, 'onenote parent')
-
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # set childs
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        myprint( '', line=True, title='SET ONENOTE CHILDS' )
-
-        _elements['childs'] = nan
-
-        save_excel(directory, _elements, 'onenote childs')
+            _elements.loc[~_elements['onenote_parentSection.id'].isna(), 'onenote_parent'] = _elements['onenote_parentSection.id']
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # reorganize elements
@@ -304,7 +288,7 @@ class ONENOTE:
         def _find_page( row ):
             cond = (_elements['onenote_self'].str.contains("/pages/"))
             cond &= (_elements['tmp_name'].isin([row['tmp_name']]))
-            cond &= (_elements['parent'].isin([row['onenote_id']]))
+            cond &= (_elements['onenote_parent'].isin([row['onenote_id']]))
             found_pages = _elements[cond]
             if len(found_pages) > 0:
                 # it is a match
@@ -312,9 +296,9 @@ class ONENOTE:
                     if found_page['onenote_content'] == found_page['onenote_content']: 
                         if row['onenote_content'] != row['onenote_content']: row['onenote_content'] = found_page['onenote_content']
                         else: row['onenote_content'] += found_page['onenote_content']
-                    if found_page['resources'] == found_page['resources']: 
-                        if row['resources'] != row['resources']: row['resources'] = found_page['resources']
-                        else: row['resources'] = json.dumps( json.loads(row['resources']) + json.loads(found_page['resources']) )
+                    if found_page['onenote_attachments'] == found_page['onenote_attachments']: 
+                        if row['onenote_attachments'] != row['onenote_attachments']: row['onenote_attachments'] = found_page['onenote_attachments']
+                        else: row['onenote_attachments'] = json.dumps( json.loads(row['onenote_attachments']) + json.loads(found_page['onenote_attachments']) )
                 row['tmp_found'] = found_pages['onenote_id'].to_list()
             return row
 
@@ -333,81 +317,12 @@ class ONENOTE:
         cond = (~_elements['tmp_found'].isna())
         myprint( 'merged {} contents'. format(len(_elements[cond])), prefix="...")
 
-        _elements['merged'] = False
+        _elements['onenote_merged'] = False
         pages = list(dict.fromkeys([x for xs in _elements[cond]['tmp_found'].drop_duplicates().to_list() for x in xs]))
         cond = (_elements['onenote_id'].isin(pages))
-        _elements.loc[cond, 'merged'] = True
+        _elements.loc[cond, 'onenote_merged'] = True
 
         _elements.drop( columns=['tmp_found', 'tmp_name'], inplace=True)
-
-        save_excel(directory, _elements, 'onenote merged')
-
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # set path
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        # myprint( '', line=True, title='SET ONENOTE PATH' )
-
-        # def _path( row ):
-        #     row['path'] = row['onenote_id'].split('!')
-        #     row['path'].reverse()
-        #     return row['path']
-
-        # _elements['path'] = nan
-        # _elements['path'] = _elements.apply(_path, axis='columns')
-
-        # myprint( '', line=True, title='SET ONENOTE TAGS' )
-
-        # def _tags( row ):
-        #     tags = []
-        #     for id in row['path']:
-        #         tmp = _elements[_elements['id'] == id]
-        #         if len(tmp) > 0:
-        #             tags += [ tmp.iloc[0]['slug'] ]
-        #     if len(tags) > 0: row['tags'] = tags
-        #     else: row['tags'] = nan
-
-        #     return row['tags']
-
-        # _elements['tags'] = nan
-        # _elements['tags'] = _elements.apply(_tags, axis='columns')
-
-        # save_excel(directory, _elements, 'onenote path')
-
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # cleanup
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        # myprint( '', line=True, title='CLEANUP ONENOTE CONTENT' )
-
-        # drop columns
-
-        to_drop = [
-            r'Url',
-            r'parent*.id',
-            r'odata.context',
-            r'parent*.self',
-            r'displayName',
-            r'createdByAppId',
-            r'isShared',
-            r'isDefault',
-            r'userRole',
-        ]
-        drop_list = []
-
-        for key in _elements.columns.to_list():
-            for val in to_drop:
-                if re.search( val, key): 
-                    drop_list += [ key ]
-                    break
-
-        if 'onenote_contentUrl' in drop_list: drop_list.remove('onenote_contentUrl')
-
-        # DO NOT DROP COLUMNS FOR NOW AS IT BREAKS THE LOAD
-        # myprint( 'Drop list: {}'.format(drop_list))
-        # _elements.drop( columns=drop_list, inplace=True )
-
-        # save_excel(directory, _elements, 'onenote normalized')
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # load resources
@@ -436,34 +351,41 @@ class ONENOTE:
 
                 myprint( '[{}] {}...'.format(resource['index'], resource['url'].replace('$value', 'content')), prefix='>')
 
-                if not os.path.isfile(resource['filename']): myprint( 'missing file', prefix='  ...' )
-                elif (date_file < date_page): myprint( 'outdated file', prefix='  ...' )
+                if not os.path.isfile(resource['filename']): myprint( 'missing file', prefix='...' )
+                elif (date_file < date_page): myprint( 'outdated file', prefix='...' )
 
                 out_dir = os.path.dirname(resource['filename'])
 
                 if not os.path.isdir(out_dir):
                     os.makedirs(out_dir)
 
-                data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
                 try:
-                    iserror = ('error' in data.json())
-                    if iserror:
-                        myprint( 'error: {} - {}'.format(data.json()['error']['code'], data.json()['error']['message']) )
+                    data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
+                    try:
+                        iserror = ('error' in data.json())
+                        if iserror:
+                            myprint( 'error: {} - {}'.format(data.json()['error']['code'], data.json()['error']['message']) )
+                    except:
+                        iserror = False
+                        with open(resource['filename'], 'wb') as fs:
+                            fs.write(data.content) 
+
+                        myprint( '[{}] {}: {} bytes'.format( resource['index'], 
+                                                                resource['filename'], 
+                                                                os.path.getsize(resource['filename']) ), 
+                                    prefix='...' )
+
+                        resource['processed'] = True
                 except:
-                    iserror = False
-                    with open(resource['filename'], 'wb') as fs:
-                        fs.write(data.content) 
-
-                    myprint( '[{}] {}: {} bytes'.format( resource['index'], resource['filename'], os.path.getsize(resource['filename']) ), prefix='  ...' )
-
-                    resource['processed'] = True
+                    exc_type, exc_obj, exc_tb = sys.exc_info()
+                    myprint( 'error: {}'.format(exc_obj), prefix='...' )
             else:
                     resource['processed'] = True
 
             return resource
 
-        cond = (~_elements['resources'].isna())
-        resources = _elements[cond]['resources'].apply( lambda x: json.loads(x) )
+        cond = (~_elements['onenote_attachments'].isna())
+        resources = _elements[cond]['onenote_attachments'].apply( lambda x: json.loads(x) )
         if len(resources) > 0: 
             myprint( '', line=True, title='LOAD ONENOTE RESOURCES')
 
@@ -478,8 +400,6 @@ class ONENOTE:
                 resources = resources.apply(_load_resource, axis='columns')
 
             myprint( '.. missing {} resources out of {}'. format(len(resources[resources['processed']==False]), nb))
-
-            save_excel(directory, _elements, 'onenote loaded')
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # set body
@@ -529,12 +449,12 @@ class ONENOTE:
                 # resources
 
                 # replace url by file
-                if element['resources'] == element['resources']:
-                    for resource in json.loads(element['resources']):
+                if element['onenote_attachments'] == element['onenote_attachments']:
+                    for resource in json.loads(element['onenote_attachments']):
                         if resource['filename']:
                             element['body'] = element['body'].replace( resource['url'], 
-                                                                       resource['filename'].replace( directory, 'static' )
-                                                                     )
+                                                                    resource['filename'].replace( directory, 'static' )
+                                                                    )
 
             return element
 
@@ -548,7 +468,7 @@ class ONENOTE:
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # normalize
         # -------------------------------------------------------------------------------------------------------------------------------------------
-        # normalized ['source','what','id','title','created','modified','author','parent','childs','body','path','resources']
+        # normalized ['source','what','type','id','title','created','modified','author','parent','childs','body','path','slug','resources']
 
         myprint( '', line=True, title='NORMALIZE ONENOTE')
 
@@ -560,22 +480,50 @@ class ONENOTE:
                 return re.search( r'^.*onenote/(.*?)/', text).group(1)
             _elements['what'] = _elements['onenote_self'].apply( lambda x: re.search( r'^.*onenote/(.*?)/', x).group(1) )
 
+        _elements['type'] = 'post' 
+        _elements.loc[_elements['type'].isin(['pages']), 'type'] = 'page' 
+
+        # id
         if 'onenote_id' in _elements.columns.to_list(): _elements['id'] = _elements['onenote_id']
 
+        # title
         if 'onenote_title' in _elements.columns.to_list(): _elements['title'] = _elements['onenote_title']
         if 'onenote_displayName' in _elements.columns.to_list(): _elements.loc[_elements['title'].isna(), 'title'] = _elements['onenote_displayName']
 
+        # dates
         if 'onenote_createdDateTime' in _elements.columns.to_list(): _elements['created'] = _elements['onenote_createdDateTime']
         if 'onenote_lastModifiedDateTime' in _elements.columns.to_list(): _elements['modified'] = _elements['onenote_lastModifiedDateTime']
 
+        # author
         for col in ['onenote_createdBy.user.displayName', 'onenote_lastModifiedBy.user.displayName']:
             if col in _elements.columns.to_list(): 
                 _elements.loc[~_elements[col].isna(), 'authors'] = _elements[col]
 
-        # _elements['parent'] set above
-        # _elements['childs'] set above
+        # parent
+        _elements['parent'] = _elements['onenote_parent']
+
+        # childs
+        def _set_childs( element ):
+            childs = _elements[_elements['parent'] == element['id'] ]['id']
+            if len(childs) > 0: return childs.to_list()
+            else: return nan
+        _elements['childs'] = _elements.apply( _set_childs, axis='columns' )
+
+        # body
         # _elements['body'] set above
-        # _elements['resources'] set above
+
+        # path
+        # _elements['path'] 
+
+        # resources
+        _elements['resources'] = _elements['onenote_attachments']
+
+        # slug
+        _elements['slug'] = _elements['id'].apply( lambda x: slugify(x) )
+
+        # drop columns
+
+        #_elements.drop( columns=[ 'onenote_attachments', 'onenote_parent' ], inplace=True )
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # save excel
@@ -589,10 +537,65 @@ class ONENOTE:
 
         return _elements
 
-    # ===============================================================================================================================================
-    # write
-    # ===============================================================================================================================================
+    except:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        myprint("Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
 
-    def write( self, directory, token, elements=empty_elements() ): 
+        return empty_elements()
 
-        pass
+# ###################################################################################################################################################
+# WRITE
+# ###################################################################################################################################################
+
+def write( directory, token, elements=empty_elements() ): 
+
+    pass
+
+# ###################################################################################################################################################
+# CLEAR
+# ###################################################################################################################################################
+
+def clear( directory, elements=empty_elements(), all=False ): 
+
+    myprint( '', line=True, title='CLEAR ONENOTE FILES')
+
+    _directory = os.path.join( directory, 'onenote' )
+
+    if all:
+        if os.path.isdir(_directory):
+            myprint( 'Removing {}...'.format(_directory), prefix='>' )
+            shutil.rmtree(_directory)
+            os.makedirs(_directory)
+    else:
+        cond = (~elements['resources'].isna())
+        cond &= elements['source'].isin(['onenote'])
+        resources = elements[cond]['resources'].apply( lambda x: json.loads(x) )
+
+        if len(resources) > 0: 
+            resources = resources.apply(pd.Series).stack().reset_index(drop=True).apply(pd.Series)
+            resources = resources['filename'].drop_duplicates()
+
+            myprint( 'Processing {} resources'. format(len(resources)))
+
+            onenote_files = list(dict.fromkeys(resources.to_list()))
+
+            count = 0
+            removed = 0
+            for root, dirs, files in os.walk(_directory):
+                for name in files:
+                    if not (os.path.join(root, name) in onenote_files):
+                        removed += 1
+                        myprint('[{}] removing {} file'.format(removed, os.path.join(root, name)), prefix='>')
+                        #os.remove( os.path.join(root, name) )
+                    count += 1
+
+            for root, dirs, files in os.walk(_directory, topdown=False):
+                for name in dirs:
+                    walk = sum([len(files) for r, d, files in os.walk(os.path.join(root, name))])
+                    if walk == 0:
+                        myprint('removing {} directory'.format(os.path.join(root, name)), prefix='>')
+                        #shutil.rmtree(os.path.join(root, name))
+
+            myprint('removed {} out of {} files'.format(removed, count), prefix='...')
+

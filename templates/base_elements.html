@@ -1,21 +1,29 @@
 {% extends "base.html" %}
 {% block elements %}
+{{result|length}} elements
+<hr>
 <table id="data" class="table table-striped">
     <thead>
         <tr>
-            <td>What</td>
-            <td>IDs</td>
-            <td>Title</td>            
-            <td>Date</td>            
-            <td>Author</td>            
-            <td>Content</td>            
-        </tr>
+          <td>Content</td>            
+          <td>What</td>
+          <td>IDs</td>
+          <td>Title</td>            
+          <td>Date</td>            
+          <td>Author</td>            
+          <td>Content</td>            
+      </tr>
     </thead>
     <tbody>
     {% for x in result %}
       <tr>
-        <td>{{ x.source }}.{{ x.what }}</td>
-        <td>{{ x.id }}<br>{{ x.parent }}</td>
+        <td>
+          {% if x.body is string %}
+            <a class="btn btn-secondary" href="/element?id={{ x.id }}"" target="_blank" role="button">Display</a>
+          {% endif %}
+        </td>
+        <td>{{ x.source }}.{{ x.what }}<br>[{{ x.type }}]</td>
+        <td>{{ x.id }}<br>[{{ x.parent }}]<br>[{{ x.childs }}]</td>
         <td>{{ x.title }}</td>
         <td>
           {% if x.modified > x.created %}
@@ -27,8 +35,7 @@
         <td>{{ x.authors }}</td>
         <td>
           {% if x.body is string %}
-            <a class="btn btn-secondary" href="/element?id={{ x.id }}"" target="_blank" role="button">Display</a>
-            -{{ x.body }}-
+            {{ x.body }}
           {% endif %}
         </td>
       </tr>
@@ -42,12 +49,13 @@
   $(document).ready(function () {
     $('#data').DataTable({
       columns: [
+        {orderable: false, searchable: false},
         {orderable: true, searchable: true},
         {orderable: false, searchable: true},
         {orderable: false, searchable: true},
         {orderable: false, searchable: false},
         {orderable: false, searchable: true},
-        {orderable: false, searchable: false},
+        {orderable: false, searchable: true},
       ],
     });
   });
