@@ -137,6 +137,8 @@ if __name__ == "__main__":
     FOLDER_STATIC = os.path.join( os.path.dirname(__file__), 'static')
     FOLDER_SITE = os.path.join( os.path.dirname(__file__), 'site')
 
+    FOLDER_ITMZ = "/Volumes/library/MindMap"
+
     elements = empty_elements()
 
     # =============================================================================================================================
@@ -149,8 +151,27 @@ if __name__ == "__main__":
     Session(app)
     app.debug = True
 
-    # ROOT
+    # -----------------------------------------------------------------------------------------------------------------------------
+    # CATALOG
+    # -----------------------------------------------------------------------------------------------------------------------------
 
+    def _catalog():
+        if not session.get("user"):
+            return redirect(url_for("login"))
+
+        token = get_token(microsoft_config.SCOPE)
+
+        catalog = pd.DataFrame()
+        catalog = onenote.catalog( token = token['access_token'] )
+        catalog = pd.concat( [ catalog, itmz.catalog(FOLDER_ITMZ) ], ignore_index=True )
+
+        return catalog
+
+    # -----------------------------------------------------------------------------------------------------------------------------
+    # ROOT
+    # -----------------------------------------------------------------------------------------------------------------------------
+
+    # home button
     @app.route("/")
     def index():
         global elements
@@ -159,20 +180,11 @@ if __name__ == "__main__":
 
         return render_template('index.html', result= get_catalog(FOLDER_STATIC) )
 
-    # ELEMENTS 
+    # -----------------------------------------------------------------------------------------------------------------------------
+    # EXCEL FILE 
+    # -----------------------------------------------------------------------------------------------------------------------------
     
-    @app.route("/element")
-    def one_element():
-        element_id = request.args.get('id')
-        tmp = elements[elements['id'] == element_id]
-        content = '<!DOCTYPE html><html lang="en"><head></head><body!>' + tmp.iloc[0]['body'] if len(tmp) == 1 else '[{}]: {} ???\n{}'.format(element_id, len(tmp), tmp) + '</body></html>'
-        return content
-
-    @app.route("/elements")
-    def display_elements():
-        global elements
-        return render_template('elements.html', result=elements.to_dict('records'))
-
+    # filename button
     @app.route("/getfile")
     def getfile():
         global elements
@@ -181,9 +193,71 @@ if __name__ == "__main__":
 
         elements = load_excel( filename )
 
-        return render_template('elements.html', result=elements.to_dict('records'))
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
 
-    # ALL 
+    # -----------------------------------------------------------------------------------------------------------------------------
+    # ELEMENTS
+    # -----------------------------------------------------------------------------------------------------------------------------
+
+    # refresh button
+    @app.route("/elements")
+    def display_elements():
+        global elements
+
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
+
+    # display button
+    @app.route("/element")
+    def one_element():
+        element_id = request.args.get('id')
+        tmp = elements[elements['id'] == element_id]
+        content = '<!DOCTYPE html><html lang="en"><head></head><body!>' + tmp.iloc[0]['body'] if len(tmp) == 1 else '[{}]: {} ???\n{}'.format(element_id, len(tmp), tmp) + '</body></html>'
+        return content
+
+    # -----------------------------------------------------------------------------------------------------------------------------
+    # PARSE 
+    # -----------------------------------------------------------------------------------------------------------------------------
+
+    @app.route("/parse")
+    def parse():
+        global elements
+
+        what = request.args.get('what')
+        source = request.args.get('source')
+
+        if what in ['all', 'onenote']:
+
+            if not session.get("user"):
+                return redirect(url_for("login"))
+
+            token = get_token(microsoft_config.SCOPE)
+
+            onenote_elements = onenote.read( directory = FOLDER_STATIC,
+                                             token = token['access_token'],
+                                             notebook = None if source in ['all'] else source,
+                                             elements = elements )
+
+            elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
+
+        if what in ['all', 'itmz']:
+
+            itmz_elements = itmz.read( directory = FOLDER_STATIC,
+                                       source = FOLDER_ITMZ, 
+                                       elements = empty_elements() )
+
+            elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
+        
+        if what in ['all', 'notes']:
+            pass
+        
+        save_excel(FOLDER_STATIC, elements)
+
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
+
+    # READ 
 
     def _read( what='all' ):
         global elements
@@ -204,7 +278,7 @@ if __name__ == "__main__":
         if what in ['all', 'itmz']:
 
             itmz_elements = itmz.read( directory = FOLDER_STATIC,
-                                       source = "/Volumes/library/MindMap", 
+                                       source = FOLDER_ITMZ, 
                                        elements = empty_elements() )
 
             elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
@@ -218,7 +292,8 @@ if __name__ == "__main__":
     def all_read():
         global elements
         _read( 'all' )
-        return render_template('elements.html', result=elements.to_dict('records'))
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
 
     # ONENOTE 
     
@@ -226,7 +301,8 @@ if __name__ == "__main__":
     def onenote_read():
         global elements
         _read( 'onenote' )
-        return render_template('elements.html', result=elements.to_dict('records'))
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
 
     # ITMZ 
     
@@ -234,7 +310,8 @@ if __name__ == "__main__":
     def itmz_read():
         global elements
         _read( 'itmz' )
-        return render_template('elements.html', result=elements.to_dict('records'))
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
 
     # NOTES
     
@@ -242,10 +319,14 @@ if __name__ == "__main__":
     def notes_read():
         global elements
         _read( 'notes' )
-        return render_template('elements.html', result=elements.to_dict('records'))
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
 
+    # -----------------------------------------------------------------------------------------------------------------------------
     # NIKOLA
+    # -----------------------------------------------------------------------------------------------------------------------------
     
+    # write to nikola
     @app.route("/nikola")
     def nikola_write():
         global elements
@@ -255,9 +336,12 @@ if __name__ == "__main__":
 
         save_excel(FOLDER_STATIC, elements)
 
-        return render_template('elements.html', result=elements.to_dict('records'))
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
 
+    # -----------------------------------------------------------------------------------------------------------------------------
     # ACTIONS 
+    # -----------------------------------------------------------------------------------------------------------------------------
     
     @app.route("/clean")
     def clean():
@@ -268,13 +352,15 @@ if __name__ == "__main__":
                 if col not in ['source']:
                     elements[col] = nan
 
-        return render_template('elements.html', result=elements.to_dict('records'))
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
 
     @app.route("/refresh")
     def refresh():
         global elements
 
-        return render_template('elements.html', result=elements.to_dict('records'))
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
 
     @app.route("/clear")
     def clear():
@@ -286,7 +372,8 @@ if __name__ == "__main__":
         itmz.clear( directory=FOLDER_STATIC, elements=elements )
         onenote.clear( directory=FOLDER_STATIC, elements=elements, all=False )
 
-        return render_template('elements.html', result=elements.to_dict('records'))
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
 
     # TOKEN CACHING AND AUTH FUNCTIONS
 

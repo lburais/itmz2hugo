@@ -1,11 +1,11 @@
-{% extends "base_elements.html" %}
+{% extends "base.html" %}
 {% block mainheader %}Elements for JamStack{% endblock %}
 {% block title %} - Elements{% endblock %}
 {% block buttons %}
-    <a class="btn btn-success" href="/all" role="button">Parse All</a>
-    <a class="btn btn-success" href="/onenote" role="button">Parse OneNote</a>
-    <a class="btn btn-success" href="/itmz" role="button">Parse iThought</a>
-    <a class="btn btn-success" href="/notes" role="button">Parse Notes</a>
+    <a class="btn btn-success" href="/parse?what=all&source=all" role="button">Parse All</a>
+    <a class="btn btn-success" href="/parse?what=onenote&source=all" role="button">Parse OneNote</a>
+    <a class="btn btn-success" href="/parse?what=itmz&source=all" role="button">Parse iThought</a>
+    <a class="btn btn-success" href="/parse?what=notes&source=all" role="button">Parse Notes</a>
     <a class="btn btn-success" href="/nikola" role="button">Write to Nikola</a>
     <a class="btn btn-success" href="/update" role="button">Write to OneNote</a>
     <a class="btn btn-success" href="/clear" role="button">Clear files</a>
@@ -13,5 +13,76 @@
     <a class="btn btn-success" href="/elements" role="button">Refresh</a>
     <a class="btn btn-danger" href="/" role="button">Back Home</a>
     <hr>
+    {% for c in result.catalog %}
+        <a 
+        {% if c.what == 'onenote' %}
+            class="btn btn-primary"
+        {% elif c.what == 'itmz' %}
+            class="btn btn-info"
+        {% endif %}
+        href="/parse?what={{ c.what }}&source={{ c.source }}" role="button">{{ c.title }}</a>
+    {% endfor %}
+    <hr>
 {% endblock %}
-
+{% block elements %}
+{{result.elements|length}} elements
+<hr>
+<table id="data" class="table table-striped">
+    <thead>
+        <tr>
+          <td>Content</td>            
+          <td>What</td>
+          <td>IDs</td>
+          <td>Title</td>            
+          <td>Date</td>            
+          <td>Author</td>            
+          <td>Content</td>            
+      </tr>
+    </thead>
+    <tbody>
+    {% for x in result.elements %}
+      <tr>
+        <td>
+          {% if x.body is string %}
+            <a class="btn btn-secondary" href="/element?id={{ x.id }}"" target="_blank" role="button">Display</a>
+          {% endif %}
+        </td>
+        <td>{{ x.source }}.{{ x.what }}<br>[{{ x.type }}]</td>
+        <td>{{ x.id }}<br>[{{ x.parent }}]<br>[{{ x.childs }}]</td>
+        <td>{{ x.title }}</td>
+        <td>
+          {% if x.modified > x.created %}
+            {{ x.modified }}
+          {% else %}
+            {{ x.created }}
+          {% endif %}
+        </td>
+        <td>{{ x.authors }}</td>
+        <td>
+          {% if x.body is string %}
+            {{ x.body }}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+</table>
+<script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.js"></script>
+<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap5.js"></script>
+<script>
+  $(document).ready(function () {
+    $('#data').DataTable({
+      columns: [
+        {orderable: false, searchable: false},
+        {orderable: true, searchable: true},
+        {orderable: false, searchable: true},
+        {orderable: false, searchable: true},
+        {orderable: false, searchable: false},
+        {orderable: false, searchable: true},
+        {orderable: false, searchable: true},
+      ],
+    });
+  });
+</script>
+{% endblock %}

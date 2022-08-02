@@ -5,6 +5,9 @@
 # - Release:
 # - Date:
 #
+# Graph Explorer:
+#   https://developer.microsoft.com/fr-fr/graph/graph-explorer
+#
 # ###################################################################################################################################################
 # todo
 #
@@ -30,39 +33,83 @@ import pandas as pd
 from mytools import *
 
 # ###################################################################################################################################################
+# CATALOG
+# ###################################################################################################################################################
+
+def catalog( token ): 
+    myprint( '', line=True, title='GET ONENOTE CATALOG')
+    
+    url='https://graph.microsoft.com/v1.0/me/onenote/notebooks'
+
+    myprint( '{}'.format( url), prefix='>' )
+
+    try:
+        onenote_response = requests.get( url, headers={'Authorization': 'Bearer ' + token} ).json()
+
+        if 'error' in onenote_response:
+            myprint( '[{0:<8}] error: {1} - {2}'.format(what, onenote_response['error']['code'], onenote_response['error']['message']) )
+            return pd.DataFrame()
+        else:
+            if 'value' not in onenote_response: onenote_catalog = { 'value': [ onenote_response ] }
+            else: onenote_catalog = onenote_response
+
+            onenote_catalog = pd.json_normalize(onenote_catalog['value'])[['displayName','self']]
+            onenote_catalog.rename( columns={'displayName': 'title', 'self': 'source'}, inplace=True )
+            onenote_catalog.drop_duplicates( inplace=True )
+            onenote_catalog['what'] = 'onenote'
+            onenote_catalog = pd.concat( [ pd.DataFrame( {'title': ['ALL'], 'source': [None], 'what': ['onenote']} ),
+                                           onenote_catalog
+                                         ], ignore_index=True)
+
+            return onenote_catalog
+
+    except:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        myprint("Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+
+        return pd.DataFrame( {'title': ['ALL'], 'source': [None], 'what': ['onenote']} )
+
+# ###################################################################################################################################################
 # READ
 # ###################################################################################################################################################
 
-def read( directory, token, elements=empty_elements() ): 
+def read( directory, token, notebook=None, elements=empty_elements() ): 
 
     _elements = elements[elements['source'].isin(['onenote'])].copy()
+    _elements = empty_elements()
     _files_directory = os.path.join( directory, 'onenote' )
 
-    myprint( elements, 'ONENOTE ELEMENTS')
+    myprint( elements, 'ONENOTE ELEMENTS' )
 
     try:
     
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # get elements
         # -------------------------------------------------------------------------------------------------------------------------------------------
+        #                       https://graph.microsoft.com/v1.0/me/onenote/notebooks
+        #                       https://graph.microsoft.com/v1.0/me/onenote/notebooks/{id}
+        #                       https://graph.microsoft.com/v1.0/me/onenote/sectionGroups
+        # sectionGroupsUrl :    https://graph.microsoft.com/v1.0/me/onenote/notebooks/{id}/sectionGroups
+        # sectionGroupsUrl :    https://graph.microsoft.com/v1.0/me/onenote/sectionGroups/{id}/sectionGroups
+        #                       https://graph.microsoft.com/v1.0/me/onenote/sections
+        # sectionsUrl:          https://graph.microsoft.com/v1.0/me/onenote/notebooks/{id}/sections
+        # sectionsUrl:          https://graph.microsoft.com/v1.0/me/onenote/sectionGroups/{id}/sections
+        # pagesUrl:             https://graph.microsoft.com/v1.0/me/onenote/sections/{id}/pages
 
         if len(_elements) == 0:
             myprint( '', line=True, title='GET ONENOTE ELEMENTS')
 
-            def _get( what ):
+            def _get( url ):
                 onenote = empty_elements()
-                run = True
+                run = (url == url)
                 page_count = 0
                 page_nb = 100
-
-                if (what == 'notebook'): url='https://graph.microsoft.com/v1.0/me/onenote/notebooks'
-                elif (what == 'group'): url='https://graph.microsoft.com/v1.0/me/onenote/sectionGroups'
-                elif (what == 'section'): url='https://graph.microsoft.com/v1.0/me/onenote/sections'
-                elif (what == 'page'): url='https://graph.microsoft.com/v1.0/me/onenote/pages'
-                else: run = False
+                what = re.search( r'^.*/(.*?)$', url ).group(1)
+                myprint( what, prefix="---" )
 
                 while run:
-                    if (what == 'page'): 
+                    if (what == 'pages'): 
                         url += '?$top={}'.format(page_nb)
                         if page_count > 0: url += '&$skip={}'.format(page_count)
 
@@ -108,12 +155,20 @@ def read( directory, token, elements=empty_elements() ):
 
                 myprint( '{}: {} elements loaded'.format( what, len(onenote) ), prefix="..." )
 
+                # recursive
+                if not what in [ 'pages', 'content']:
+                    for u in ['onenote_sectionGroupsUrl', 'onenote_sectionsUrl', 'onenote_pagesUrl']:
+                        if u in onenote:
+                            cond = ~onenote[u].isna()
+                            onenote = pd.concat( [ onenote, onenote[cond][u].apply( lambda x: _get(x) ) ], ignore_index=True )
+
                 return onenote
 
-            _elements = pd.concat( [ _elements, _get('notebook') ], ignore_index=True )
-            _elements = pd.concat( [ _elements, _get('group') ], ignore_index=True )
-            _elements = pd.concat( [ _elements, _get('section') ], ignore_index=True )
-            _elements = pd.concat( [ _elements, _get('page') ], ignore_index=True )
+            # notebooks
+            url = notebook if notebook else 'https://graph.microsoft.com/v1.0/me/onenote/notebooks'
+            _elements = _get(url)
+
+             # myprint(_elements)
 
             myprint( 'Nb elements = {}'.format(len(_elements)) )
 

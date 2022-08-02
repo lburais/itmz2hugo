@@ -3,6 +3,7 @@ import re
 import pprint
 import glob
 
+from tabulate import tabulate
 from datetime import datetime as dt
 
 # pip3 install XlsxWriter
@@ -93,7 +94,7 @@ def myprint( content, line=False, prefix='', title='' ):
             else:
                 print( "= {} {}".format(title, "="*(250-len(title)-3)) )
         if isinstance(content, pd.DataFrame):
-            pprint.pprint( content )
+            print( tabulate( content, headers='keys', tablefmt="fancy_grid", showindex="never" ) )
         elif content != '':
             print('    {}{}{}'.format(prefix, '' if prefix == '' else ' ', content))
 

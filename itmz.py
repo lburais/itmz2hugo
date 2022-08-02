@@ -76,6 +76,29 @@ import pandas as pd
 from mytools import *
 
 # ###################################################################################################################################################
+# CATALOG
+# ###################################################################################################################################################
+
+def catalog( source ): 
+    
+    itmz_catalog = pd.DataFrame( {'title': [None], 'source': [None], 'what': ['itmz']} )
+    if os.path.isdir( source ):
+        for top, dirs, filenames in os.walk( source, topdown=True ):
+            for file in filenames:
+                if os.path.splitext(file)[1] == '.itmz': 
+                    itmz_catalog = pd.concat( [ itmz_catalog,
+                                                pd.DataFrame( { 'title': [os.path.splitext(file)[0]], 
+                                                                'source': [os.path.join(top, file)], 
+                                                                'what': ['itmz'] } )  
+                                              ], ignore_index= True )
+
+    itmz_catalog = pd.concat( [ pd.DataFrame( {'title': ['ALL'], 'source': [None], 'what': ['itmz']} ),
+                                itmz_catalog
+                              ], ignore_index=True)
+
+    return itmz_catalog
+
+# ###################################################################################################################################################
 # READ
 # ###################################################################################################################################################
 
