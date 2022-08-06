@@ -236,8 +236,7 @@ if __name__ == "__main__":
 
             onenote_elements = onenote.read( directory = FOLDER_STATIC,
                                              token = token['access_token'],
-                                             notebook = None if source in ['all'] else source,
-                                             elements = elements )
+                                             notebookUrl = None if source in ['all'] else source )
 
             elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
 

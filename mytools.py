@@ -45,7 +45,7 @@ timestamp = None
 #       - filename
 #       - date
 
-ELEMENT_COLUMNS=['source','what','type','id','title','created','modified','authors','parent','childs','body','resources']
+ELEMENT_COLUMNS=['source','what','type','id','title','created','modified','authors','top','parent','childs','body','resources']
 
 def empty_elements():
     return pd.DataFrame( columns = ELEMENT_COLUMNS )
