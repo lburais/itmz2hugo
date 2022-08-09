@@ -161,11 +161,9 @@ if __name__ == "__main__":
 
         token = get_token(microsoft_config.SCOPE)
 
-        catalog = pd.DataFrame()
-        catalog = onenote.catalog( token = token['access_token'] )
-        catalog = pd.concat( [ catalog, itmz.catalog(FOLDER_ITMZ) ], ignore_index=True )
-
-        return catalog
+        return pd.concat( [ onenote.catalog( token = token['access_token'] ), 
+                            itmz.catalog(FOLDER_ITMZ) 
+                          ], ignore_index=True )
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # ROOT
@@ -227,7 +225,7 @@ if __name__ == "__main__":
         what = request.args.get('what')
         source = request.args.get('source')
 
-        if what in ['all', 'onenote']:
+        if source in ['all', 'onenote']:
 
             if not session.get("user"):
                 return redirect(url_for("login"))
@@ -236,11 +234,11 @@ if __name__ == "__main__":
 
             onenote_elements = onenote.read( directory = FOLDER_STATIC,
                                              token = token['access_token'],
-                                             notebookUrl = None if source in ['all'] else source )
+                                             notebookUrl = None if what in ['all'] else what )
 
             elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
 
-        if what in ['all', 'itmz']:
+        if source in ['all', 'itmz']:
 
             itmz_elements = itmz.read( directory = FOLDER_STATIC,
                                        source = FOLDER_ITMZ, 
@@ -248,7 +246,7 @@ if __name__ == "__main__":
 
             elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
         
-        if what in ['all', 'notes']:
+        if source in ['all', 'notes']:
             pass
         
         save_excel(FOLDER_STATIC, elements)
@@ -432,14 +430,15 @@ if __name__ == "__main__":
             microsoft_config.SCOPE,
             state=session["state"],
             redirect_uri=url_for("authorized", _external=True))
-        return "<a href='%s'>Login with Microsoft Identity</a>" % auth_url
+        # return "<a href='%s'>Login with Microsoft Identity</a>" % auth_url
+        return render_template( 'login.html', auth_url=auth_url )
 
     @app.route("/logout")
     def logout():
         session.clear()  # Wipe out the user and the token cache from the session
         return redirect(  # Also need to log out from the Microsoft Identity platform
             "https://login.microsoftonline.com/common/oauth2/v2.0/logout"
-            "?post_logout_redirect_uri=" + url_for("index", _external=True))
+            "?post_logout_redirect_uri=" + url_for("login", _external=True))
 
     # SERVE
 

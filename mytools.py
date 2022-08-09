@@ -35,6 +35,7 @@ timestamp = None
 #   - created
 #   - modified
 #   - authors
+#   - slug
 #   - parent
 #   - childs
 #   - body
@@ -45,7 +46,7 @@ timestamp = None
 #       - filename
 #       - date
 
-ELEMENT_COLUMNS=['source','what','type','id','title','created','modified','authors','top','parent','childs','body','resources']
+ELEMENT_COLUMNS=['source','what','type','id','title','created','modified','authors','slug','top','parent','childs','body','resources']
 
 def empty_elements():
     return pd.DataFrame( columns = ELEMENT_COLUMNS )
@@ -86,7 +87,7 @@ def slugify( value ):
 # myprint
 # ===============================================================================================================================================
 
-def myprint( content, line=False, prefix='', title='' ):
+def myprint( content, line=False, prefix='', title='', na=True ):
     if DEBUG:
         if line:
             if title == '':
@@ -94,7 +95,10 @@ def myprint( content, line=False, prefix='', title='' ):
             else:
                 print( "= {} {}".format(title, "="*(250-len(title)-3)) )
         if isinstance(content, pd.DataFrame):
-            print( tabulate( content, headers='keys', tablefmt="fancy_grid", showindex="never" ) )
+            tmp = content.copy()
+            if not na: tmp.dropna( axis='columns', how='all', inplace=True)
+            print( tabulate( tmp, headers='keys', tablefmt="fancy_grid", showindex="never" ) )
+            del tmp
         elif content != '':
             print('    {}{}{}'.format(prefix, '' if prefix == '' else ' ', content))
 
@@ -162,7 +166,9 @@ def save_excel( directory, elements, type=None ):
 
         if not type : timestamp = None
 
-        myprint( "{} rows saved in file {}.".format(len(elements), out_file), prefix="..." )        
+        myprint( "{} rows saved in file {}.".format(len(elements), out_file), prefix="..." )
 
+        if not type: os.system('open "' + out_file + '"')
+       
     except:
         myprint( "Something went wrong with file {}.".format(out_file), prefix="..." )            

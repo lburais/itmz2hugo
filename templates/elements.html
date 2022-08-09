@@ -14,13 +14,11 @@
     </label>
     <hr>
     {% for c in result.catalog %}
-        <a 
-        {% if c.what == 'onenote' %}
-            class="btn btn-primary"
-        {% elif c.what == 'itmz' %}
-            class="btn btn-info"
+        {% if c.source == 'onenote' %}
+          <a class="btn btn-primary" href="/parse?what={{ c.onenote_self }}&source={{ c.source }}" role="button">{{ c.title }}</a>
+        {% elif c.source == 'itmz' %}
+            <a class="btn btn-info" href="/parse?what={{ c.itmz_filename }}&source={{ c.source }}" role="button">{{ c.title }}</a>
         {% endif %}
-        href="/parse?what={{ c.what }}&source={{ c.source }}" role="button">{{ c.title }}</a>
     {% endfor %}
     <hr>
 {% endblock %}

@@ -1,6 +1,5 @@
-{% extends "base_no_buttons.html" %}
+{% extends "base.html" %}
 {% block mainheader %}Welcome{% endblock %}
 {% block content %}
-  <a class="btn btn-success btn-lg" href="/user" role="button">Login</a>
-</body>
+<a class="btn btn-success btn-lg" href={{ auth_url }} role="button">Login with Microsoft Identity</a>
 {% endblock %}
