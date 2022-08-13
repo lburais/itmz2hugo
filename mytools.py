@@ -46,13 +46,10 @@ timestamp = None
 #       - filename
 #       - date
 
-ELEMENT_COLUMNS=['source','what','type','id','title','created','modified','authors','slug','top','parent','childs','body','resources']
+ELEMENT_COLUMNS=['source','what','type','id','number','title','created','modified','authors','slug','top','parent','childs','body']
 
 def empty_elements():
     return pd.DataFrame( columns = ELEMENT_COLUMNS )
-
-def empty_resource():
-    return { 'type': None, 'name': None, 'url': None, 'parent': None, 'filename': None, 'date': None, 'processed': False }
 
 # #################################################################################################################################
 # INTERNAL FUNCTIONS

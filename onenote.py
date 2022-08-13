@@ -97,6 +97,9 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
                 if not identifier: identifier = re.search( r'^.*/(\d-[\w]+![\w]+).*', url )
                 if identifier: identifier = identifier.group(1)
 
+                # to get page hierarchy
+                if what in ['pages']: get_url += '?pagelevel=true'
+
                 while get_url:
                     myprint( '[{} - {}] {}'.format(what, identifier, get_url), prefix='>' )
 
@@ -120,11 +123,41 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
 
                                 onenote_objects = pd.json_normalize(onenote_objects['value'])
 
+                                onenote_objects['date'] = nan
+                                if 'lastModifiedDateTime' in onenote_objects:
+                                    onenote_objects['date'] = onenote_objects['lastModifiedDateTime']
+                                if 'createdDateTime' in onenote_objects:
+                                     onenote_objects.loc[onenote_objects['date'].isna(), 'date'] = onenote_objects['createdDateTime']
+
+                                if 'parentNotebook.id' in onenote_objects: onenote_objects['notebook'] = onenote_objects['parentNotebook.id']
+                                if what in ['notebooks']: onenote_objects['notebook'] = onenote_objects['id']
+
+                                onenote_objects['parent'] = nan
+                                for context in ['parentNotebook@odata.context', 'parentSectionGroup@odata.context', 'parentSection@odata.context']:
+                                    if context in onenote_objects:
+                                        cond = onenote_objects['parent'].isna()
+                                        onenote_objects.loc[cond, 'parent'] = onenote_objects[cond][context]
+
+                                # .../sectionGroups('0-34CFFB16AE39C6B3%21335814')/sections('0-34CFFB16AE39C6B3%21335818')/parentNotebook/$entity
+                                cond = ~onenote_objects['parent'].isna()
+                                pattern = r'^.*/onenote/.*\(\'(.*?)\'\)/.*\(\'(.*?)\'\)/.*'
+
+                                onenote_objects.loc[cond, 'parent'] = \
+                                    onenote_objects[cond]['parent'].apply( lambda x: re.search( pattern, x).group(1).replace('%21','!') )
+
                                 if ('@odata.nextLink' in onenote_response.json() or page_count > 0) and (len(onenote_objects) > 0):
                                     # paginate
-                                    get_url = url + '?$top={}'.format(page_nb) + '&$skip={}'.format(page_count)
+                                    get_url = url
+                                    get_url += '?{}'.format('pagelevel=true&' if what in ['pages'] else '')
+                                    get_url += '$top={}'.format(page_nb)
+                                    get_url += '&$skip={}'.format(page_count)
                                 else:
                                     get_url = None
+
+                                col_list = {}
+                                for col in onenote_objects.columns.to_list():
+                                    col_list[col] = 'onenote_{}'.format(col)
+                                onenote_objects.rename( columns=col_list, inplace=True )
 
                             # .......................................................................................................................
                             # ONENOTE TEXT CONTENT
@@ -133,16 +166,45 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
                             elif onenote_response.headers['content-type'].split(';')[0] == 'text/html':
                                 # content
                                 identifier = re.search( r'^.*pages/(.*?)/content.*', get_url).group(1) if what == 'content' else None
-                                onenote_objects = pd.DataFrame( { 'onenote_id': [identifier], 
+                                cond = read_elements['onenote_what'].isin(['pages'])
+                                cond &= read_elements['onenote_contentUrl'] == url
+                                tmp = read_elements[cond]  
+
+                                try:
+                                    tmp_date = dt.strptime(tmp.iloc[0]['onenote_date'], '%Y-%m-%dT%H:%M:%S.%fZ')
+                                except:
+                                    try:
+                                        tmp_date = dt.strptime(tmp.iloc[0]['onenote_date'], '%Y-%m-%dT%H:%M:%SZ')
+                                    except:
+                                        tmp_date = nan
+
+                                tmp_parent = tmp.iloc[0]['onenote_id'] if len(tmp) > 0 else nan
+                                tmp_notebook = tmp.iloc[0]['onenote_notebook'] if len(tmp) > 0 else nan
+                                tmp_created = tmp.iloc[0]['onenote_createdDateTime'] if len(tmp) > 0 else nan
+                                tmp_modified = tmp.iloc[0]['onenote_lastModifiedDateTime'] if len(tmp) > 0 else nan
+                                del tmp
+
+                                onenote_objects = pd.DataFrame( { 'onenote_id': ['content' + identifier], 
                                                                   'onenote_self': [url], 
+                                                                  'onenote_parent': [tmp_parent], 
+                                                                  'onenote_notebook': [tmp_notebook], 
+                                                                  'onenote_createdDateTime': [tmp_created], 
+                                                                  'onenote_lastModifiedDateTime': [tmp_modified], 
+                                                                  'onenote_date': [tmp_date], 
                                                                   'onenote_content': [onenote_response.text]} )
 
                                 # add resources objects
                                 onenote_resources = process_resources( onenote_response.text )
+
                                 if len(onenote_resources) > 0:
                                     myprint( 'adding {} resources'.format(len(onenote_resources)), prefix='...' )
-                                    onenote_resources['onenote_parentContent.id'] = identifier
-                                    onenote_resources['onenote_parentContent.self'] = url
+                                    onenote_resources['onenote_what'] = 'resources'
+                                    onenote_resources['onenote_parent'] = 'content' + identifier
+                                    onenote_resources['onenote_createdDateTime'] = tmp_created
+                                    onenote_resources['onenote_lastModifiedDateTime'] = tmp_modified
+                                    onenote_resources['onenote_date'] = tmp_date
+                                    onenote_resources['onenote_notebook'] = tmp_notebook
+                                    onenote_resources['onenote_self'] = onenote_resources['onenote_resourceUrl']
                                     onenote_objects = pd.concat( [ onenote_objects, onenote_resources ], ignore_index = True ) 
 
                                 get_url = None
@@ -155,19 +217,18 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
                                 # resource
                                 def _load_resource( row ):
                                     try:
-                                        if not os.path.isdir(os.path.dirname(row['onenote_filename'])): 
-                                            os.makedirs(os.path.dirname(row['onenote_filename']))
+                                        if not os.path.isdir(os.path.dirname(row['onenote_file_name'])): 
+                                            os.makedirs(os.path.dirname(row['onenote_file_name']))
 
-                                        with open(row['onenote_filename'], 'wb') as fs:
+                                        with open(row['onenote_file_name'], 'wb') as fs:
                                             fs.write(onenote_response.content) 
 
-                                        myprint( '{}: {} bytes'.format( row['onenote_filename'], 
-                                                                        os.path.getsize(row['onenote_filename']) 
+                                        myprint( '{}: {} bytes'.format( row['onenote_file_name'], 
+                                                                        os.path.getsize(row['onenote_file_name']) 
                                                                       ), prefix='...' )
 
-                                        row['onenote_file_loaded'] = True
-                                        row['onenote_file_size'] = os.path.getsize(row['onenote_filename'])
-                                        row['onenote_file_date'] = dt.fromtimestamp(os.path.getmtime(row['onenote_filename']))
+                                        row['onenote_file_size'] = os.path.getsize(row['onenote_file_name'])
+                                        row['onenote_file_date'] = dt.fromtimestamp(os.path.getmtime(row['onenote_file_name']))
                                     except:
                                         exc_type, exc_obj, exc_tb = sys.exc_info()
                                         myprint( 'error [{} - {}] at line {}'.format(exc_type, exc_obj, exc_tb.tb_lineno), prefix='###')
@@ -175,9 +236,12 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
 
                                 cond = read_elements['onenote_what'].isin(['resources'])
                                 cond &= read_elements['onenote_resourceUrl'] == url
+                                cond &= ~read_elements['onenote_file_name'].isna()
                                 onenote_objects = read_elements[cond].copy()
-                                read_elements = read_elements[~cond]
+                                #read_elements = read_elements[~cond]
+                                read_elements.loc[~cond, 'onenote_what'] = 'delete'
 
+                                myprint( 'loading {} resources'.format(len(onenote_objects)), prefix='...' )
                                 onenote_objects = onenote_objects.apply( _load_resource, axis='columns' )
 
                                 get_url = None
@@ -197,11 +261,6 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
 
                             if 'onenote_what' in onenote_objects: onenote_objects.loc[onenote_objects['onenote_what'].isna(), 'onenote_what'] = what
                             else: onenote_objects['onenote_what'] = what
-
-                            col_list = {}
-                            for col in onenote_objects.columns.to_list():
-                                if 'onenote_' not in col: col_list[col] = 'onenote_{}'.format(col)
-                            onenote_objects.rename( columns=col_list, inplace=True )
 
                             if len(get_elements) >0 : get_elements = pd.concat( [ get_elements, onenote_objects ], ignore_index=True )
                             else: get_elements = onenote_objects.copy()
@@ -228,11 +287,6 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
                             if u in get_elements:
                                 get_elements[(~get_elements[u].isna())][u].apply( lambda x: process_url(x) )
 
-                    # content
-                    # for u in ['onenote_contentUrl']:
-                    #     if u in get_elements:
-                    #         get_elements[(~get_elements[u].isna())][u].apply( lambda x: process_url(x) )
-
                     # concat 
                     if len(read_elements) > 0: read_elements = pd.concat([read_elements, get_elements], ignore_index=True)
                     else: read_elements = get_elements.copy()
@@ -256,7 +310,7 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
             # objects
             # -------
             # <object 
-            # data="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-8a9f130df6d87945a8099be6b6d2be82!1-34CFFB16AE39C6B3!335924/$value" 
+            # data="".../resources/0-8a9f130df6d87945a8099be6b6d2be82!1-34CFFB16AE39C6B3!335924/$value"
             # data-attachment="SEJOUR BURAIS 007-IND-M-22.pdf" 
             # type="application/pdf">
             # </object>
@@ -267,12 +321,12 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
                 filename.reverse()
                 filename = os.path.join( _files_directory, os.path.sep.join(filename), tag['data-attachment'] )
                 resources_elements = pd.concat( [ resources_elements,
-                                                  pd.DataFrame( { 'onenote_what': ['resources'],
-                                                                  'onenote_resource_type': ['object'],
+                                                  pd.DataFrame( { 'onenote_resource_type': ['object'],
                                                                   'onenote_title': [tag['data-attachment']],
                                                                   'onenote_id': [identifier],
-                                                                  'onenote_filename': [filename],
-                                                                  'onenote_resourceUrl': [tag['data'].replace('$value', 'content')] } ),
+                                                                  'onenote_resourceUrl': [tag['data'].replace('$value', 'content')],
+                                                                  'onenote_file_name': [filename],
+                                                                } ),
                                                 ], ignore_index = True ) 
 
             # filename:
@@ -281,16 +335,17 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
             # ------
             # <img 
             # alt="bla bla bla"
-            # data-fullres-src="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value" 
+            # data-fullres-src=".../resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value
             # data-fullres-src-type="image/png" 
             # data-id="2f8fe6dc-10b8-c046-ba5b-c6ccf2c8884a" 
             # data-index="2" 
             # data-options="printout" 
             # data-src-type="image/png" 
             # height="842" 
-            # src="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value" 
+            # src=".../resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value 
             # width="595"
             # />
+            # .../resources/0-49c6674e67cc1c063307788cddf638db!1-34CFFB16AE39C6B3!335729/$value
 
             for tag in soup.select('img[src]'):
                 name = re.search( r'^.*resources/(.*?)!', tag['src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
@@ -299,12 +354,12 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
                 filename.reverse()
                 filename = os.path.join( _files_directory, os.path.sep.join(filename), name )
                 resources_elements = pd.concat( [ resources_elements,
-                                                  pd.DataFrame( { 'onenote_what': ['resources'],
-                                                                  'onenote_resource_type': ['image'],
+                                                  pd.DataFrame( { 'onenote_resource_type': ['image'],
                                                                   'onenote_title': [name],
                                                                   'onenote_id': [identifier],
-                                                                  'onenote_filename': [filename],
-                                                                  'onenote_resourceUrl': [tag['src'].replace('$value', 'content')] } ),
+                                                                  'onenote_resourceUrl': [tag['src'].replace('$value', 'content')],
+                                                                  'onenote_file_name': [filename],
+                                                                } ),
                                                 ], ignore_index = True ) 
 
             for tag in soup.select('img[data-fullres-src]'):
@@ -314,27 +369,25 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
                 filename.reverse()
                 filename = os.path.join( _files_directory, os.path.sep.join(filename), name )
                 resources_elements = pd.concat( [ resources_elements,
-                                                  pd.DataFrame( { 'onenote_what': ['resources'],
-                                                                  'onenote_resource_type': ['fullres'],
+                                                  pd.DataFrame( { 'onenote_resource_type': ['fullres'],
                                                                   'onenote_title': [name],
                                                                   'onenote_id': [identifier],
-                                                                  'onenote_filename': [filename],
-                                                                  'onenote_resourceUrl': [tag['data-fullres-src'].replace('$value', 'content')] } ),
+                                                                  'onenote_resourceUrl': [tag['data-fullres-src'].replace('$value', 'content')],
+                                                                  'onenote_file_name': [filename],
+                                                                } ),
                                                 ], ignore_index = True ) 
 
             return resources_elements
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
+        myprint( '', line=True, title='GET ONENOTE {}'.format(get.upper()))
 
         if get in ['catalog']:
             # catalog
             process_url(ME + '/notebooks')
 
         else:
-            myprint( '', line=True, title='GET ONENOTE {}'.format(get.upper()))
-            myprint( notebookUrl )
-
             if notebookUrl and (notebookUrl not in ['nan', 'None']):
                 # one notebook
                 process_url(notebookUrl)
@@ -361,17 +414,156 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
             if get in ['notebooks', 'resources']:
                 # resources
                 if 'onenote_resourceUrl' in read_elements:
-                    read_elements[(~read_elements['onenote_resourceUrl'].isna())]['onenote_resourceUrl'].apply( lambda x: process_url(x) )
+                    # check file_name
+                    read_elements['onenote_file_ok'] = True
+                    read_elements['onenote_file_date'] = nan
 
-            myprint( 'Nb elements = {}'.format(len(read_elements)) )
+                    cond = (~read_elements['onenote_file_name'].isna())
 
-        # body
+                    # file does not exist
+                    cond = ~read_elements['onenote_file_name'].isna()
+                    read_elements.loc[cond, 'onenote_file_ok'] = read_elements[cond]['onenote_file_name'].apply( lambda x: os.path.isfile(x) )
 
-        # read_elements = body( read_elements )
+                    # get file mtime
+                    cond = ~read_elements['onenote_file_name'].isna() & read_elements['onenote_file_ok']
+                    read_elements.loc[cond, 'onenote_file_date'] = \
+                        read_elements[cond]['onenote_file_name'].apply( lambda x: dt.fromtimestamp(os.path.getmtime(x)) )
 
-        # normalize
+                    # no page date to compare to
+                    cond = ~read_elements['onenote_file_name'].isna() & read_elements['onenote_file_ok'] & read_elements['onenote_date'].isna()
+                    read_elements.loc[cond, 'onenote_file_ok'] = False
 
-        read_elements = normalize( read_elements )
+                    # file older than page date
+                    cond = ~read_elements['onenote_file_name'].isna() & read_elements['onenote_file_ok']
+                    read_elements.loc[cond, 'onenote_file_ok'] = \
+                        read_elements[cond].apply( lambda x: (x['onenote_file_date'] > x['onenote_date']), axis = 'columns' )
+
+                    cond = ~read_elements['onenote_file_ok']
+                    myprint( read_elements[cond][['onenote_file_name', 'onenote_file_ok', 'onenote_date', 'onenote_file_date' ]])
+
+                    cond = (~read_elements['onenote_resourceUrl'].isna())
+                    cond &= (~read_elements['onenote_file_ok'])
+                    
+                    myprint( 'loading {} resources'.format(len(read_elements[cond])), prefix='...' )
+
+                    read_elements[cond]['onenote_resourceUrl'].apply( lambda x: process_url(x) )
+
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+
+        try:
+            # normalized 'source','what','type','id','level','title','created','modified','authors','slug','top','parent','childs','body'
+
+            myprint( '', line=True, title='NORMALIZE ONENOTE')
+
+            # source
+            read_elements['source'] = 'onenote'
+
+            # what
+            read_elements['what'] = read_elements['onenote_what'] if 'onenote_what' in read_elements else nan
+
+            # type
+            read_elements['type'] = 'post' 
+            read_elements.loc[read_elements['what'].isin(['pages']), 'type'] = 'page' 
+
+            # id
+            read_elements['id'] = read_elements['onenote_id'] if 'onenote_id' in read_elements else nan
+
+            # title
+            read_elements['title'] = nan
+            if 'onenote_title' in read_elements: 
+                read_elements['title'] = read_elements['onenote_title']
+            if 'onenote_displayName' in read_elements: 
+                cond = read_elements['title'].isna()
+                read_elements.loc[cond, 'title'] = read_elements[cond]['onenote_displayName']
+
+            # dates
+            read_elements['created'] = read_elements['onenote_createdDateTime'] if 'onenote_createdDateTime' in read_elements else nan
+            read_elements['modified'] = read_elements['onenote_lastModifiedDateTime'] if 'onenote_lastModifiedDateTime' in read_elements else nan
+
+            # authors
+            read_elements['authors'] = nan
+            for col in ['onenote_createdBy.user.displayName', 'onenote_lastModifiedBy.user.displayName']:
+                if col in read_elements:
+                    cond = ~read_elements[col].isna()
+                    read_elements.loc[cond, 'authors'] = read_elements[cond][col]
+
+            # slug
+            read_elements['slug'] = read_elements['onenote_id'].apply( lambda x: slugify(x) )
+
+            # top
+            if 'onenote_notebook' in read_elements: read_elements['top'] = read_elements['onenote_notebook']
+
+            # parent
+            read_elements['parent'] = read_elements['onenote_parent'] if 'onenote_parent' in read_elements else nan
+
+            # childs
+            def _set_childs( element ):
+                cond = (read_elements['parent'] == element['id'] )
+                cond &= (~read_elements['what'].isin(['content', 'resources']) )
+                childs = read_elements[cond]['id']
+                if len(childs) > 0: return childs.to_list()
+                else: return []
+            read_elements['childs'] = read_elements.apply( _set_childs, axis='columns' )
+
+            # number
+            def _set_number( row ):
+                cond = read_elements['parent'] == row['id']
+                if len(read_elements[cond]) > 0:
+                    read_elements.loc[cond, 'number'] = [(row['number'] + '.' + str(x)) for x in list(range( 1, len(read_elements[cond]) +1 ))]
+                    read_elements[cond].apply(_set_number, axis='columns')
+
+            read_elements['number'] = nan
+            if get not in ['catalog']:
+                cond = read_elements['what'].isin(['notebooks'])
+                read_elements.loc[cond, 'number'] = [str(x) for x in list(range( 1, len(read_elements[cond]) +1 ))] # .astype(int).astype(str)
+                cond = ~read_elements['number'].isna()
+                read_elements[cond].apply(_set_number, axis='columns')
+
+            read_elements.sort_values(by=['number'], inplace=True)
+
+            # body
+            read_elements = body(read_elements)
+
+            # drop columns
+
+            to_drop = [
+                r'isDefault',
+                r'userRole',
+                r'isShared',
+                r'By.user.id',
+                r'Url.href',
+                r'odata.context',
+                #r'parent*.id',
+                r'parent*.displayName',
+                r'parent*.self',
+                #r'parentSectionGroup',
+                r'createdByAppId',
+                r'onenote_file_ok',
+                r'indent',
+            ]
+            drop_list = []
+
+            for key in read_elements:
+                for val in to_drop:
+                    if re.search( val, key): 
+                        drop_list += [ key ]
+                        break
+
+            # if 'contentUrl' in drop_list: drop_list.remove('contentUrl')
+
+            myprint( 'Drop list: {}'.format(drop_list))
+
+            # read_elements.drop( columns=drop_list, inplace=True )
+
+        except:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            myprint("Normalize erreor [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+            raise
+
+        # -------------------------------------------------------------------------------------------------------------------------------------------
+
+        myprint( 'Nb elements = {}'.format(len(read_elements)) )
 
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -382,16 +574,6 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
     return read_elements
 
 # ###################################################################################################################################################
-# READ CONTENT
-# ###################################################################################################################################################
-
-def read_content( token, elements ): 
-
-    if 'onenote_contentUrl' in elements:
-        return elements[(~elements['onenote_contentUrl'].isna())]['onenote_contentUrl'].apply( lambda x: process_url(x) )
-
-
-# ###################################################################################################################################################
 # BODY
 # ###################################################################################################################################################
 
@@ -400,220 +582,16 @@ def body( elements ):
     try:
         myprint( '', line=True, title='GET ONENOTE CONTENTS')
 
-        cond = (~elements['onenote_content'].isna())
-        cond &= (elements['onenote_what'].isin(['content']))
+        # readdress resources
 
-        content_elements = elements[cond][['onenote_self', 'onenote_content', 'onenote_attachments']]
+        # rebuild macOS / iPadOS / iOS share
 
-        content_elements.rename( columns= { 'onenote_self': 'onenote_contentUrl', 
-                                            'onenote_content': 'content_body',
-                                            'onenote_attachments': 'content_attachments'
-                                            }, inplace=True )
-
-        pages = (elements['onenote_what'].isin(['pages']))
-        elements[pages] = pd.merge( elements[pages].drop( columns=['onenote_content', 'onenote_attachments'] ), 
-                                    content_elements, 
-                                    on='onenote_contentUrl', 
-                                    how='left')
-
-        del content_attachments
+        # reorganize content
 
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        myprint("Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
-
-    return elements
-
-# ###################################################################################################################################################
-# NORMALIZE
-# ###################################################################################################################################################
-
-def normalize( elements ): 
-
-    try:
-        # normalized ['source','what','type','id','title','created','modified','author','parent','childs','body','path','slug','resources']
-
-        myprint( '', line=True, title='NORMALIZE ONENOTE')
-
-        # source
-        elements['source'] = 'onenote'
-
-        # what
-        elements['what'] = elements['onenote_what'] if 'onenote_what' in elements else nan
-
-        # type
-        elements['type'] = 'post' 
-        elements.loc[elements['what'].isin(['pages']), 'type'] = 'page' 
-
-        # id
-        elements['id'] = elements['onenote_id'] if 'onenote_id' in elements else nan
-
-        # title
-        elements['title'] = nan
-        if 'onenote_title' in elements.columns.to_list(): elements['title'] = elements['onenote_title']
-        if 'onenote_displayName' in elements.columns.to_list(): 
-            cond = elements['title'].isna()
-            elements.loc[cond, 'title'] = elements[cond]['onenote_displayName']
-
-        # dates
-        elements['created'] = elements['onenote_createdDateTime'] if 'onenote_createdDateTime' in elements.columns.to_list() else nan
-        elements['modified'] = elements['onenote_lastModifiedDateTime'] if 'onenote_lastModifiedDateTime' in elements.columns.to_list() else nan
-
-        # author
-        elements['authors'] = nan
-        for col in ['onenote_createdBy.user.displayName', 'onenote_lastModifiedBy.user.displayName']:
-            if col in elements.columns.to_list():
-                cond = ~elements[col].isna()
-                elements.loc[cond, 'authors'] = elements[cond][col]
-
-        # parent
-        elements['parent'] = elements['onenote_parent'] if 'onenote_parent' in elements else nan
-
-        # childs
-        def _set_childs( element ):
-            childs = elements[elements['parent'] == element['id'] ]['id']
-            if len(childs) > 0: return childs.to_list()
-            else: return nan
-        elements['childs'] = elements.apply( _set_childs, axis='columns' )
-
-        # body
-        # elements['body'] set above
-
-        # path
-        # elements['path'] 
-
-        # resources
-        # elements['resources'] = elements['onenote_attachments']
-
-        # slug
-        elements['slug'] = elements['id'].apply( lambda x: slugify(x) )
-
-        # drop columns
-
-        #elements.drop( columns=[ 'onenote_attachments', 'onenote_parent' ], inplace=True )
-
-        return elements
-
-    except:
-        exc_type, exc_obj, exc_tb = sys.exc_info()
-        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        myprint("Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
-        raise
-
-        return empty_elements()
-
-# ###################################################################################################################################################
-# RESOURCES
-# ###################################################################################################################################################
-
-def resources( directory, elements ): 
-
-    resources_elements = elements[elements['source'].isin(['onenote'])].copy()
-    _files_directory = os.path.join( directory, 'onenote' )
-
-    try:
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # get resources
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        def _get_resource( row ):
-
-            soup = BeautifulSoup(row['onenote_content'], features="html.parser")
-
-            #resources = pd.DataFrame( { 'onenote_what': [ 'attachment', 'onenote_self': [None] ]})
-
-            empty = empty_resource()
-
-            empty['parent'] = row['onenote_id']
-            if ('onenote_createdDateTime' in row) and (row['onenote_createdDateTime'] == row['onenote_createdDateTime']): 
-                empty['date']  = row['onenote_createdDateTime']
-            if ('onenote_lastModifiedDateTime' in row) and (row['onenote_lastModifiedDateTime'] == row['onenote_lastModifiedDateTime']): 
-                empty['date']  = row['onenote_lastModifiedDateTime']
-            
-            # objects
-            # -------
-            # <object 
-            # data="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-8a9f130df6d87945a8099be6b6d2be82!1-34CFFB16AE39C6B3!335924/$value" 
-            # data-attachment="SEJOUR BURAIS 007-IND-M-22.pdf" 
-            # type="application/pdf">
-            # </object>
-
-            for tag in soup.select("object[data-attachment]"): 
-                resource = dict(empty)
-                resource['name'] = re.search( r'^.*resources/(.*?)!', tag['data']).group(1) + '_' + tag['data-attachment']
-                resource['name'] = tag['data-attachment']
-                resource['url'] = tag['data']
-                resource['type'] = 'object'
-
-                resources += [ resource ]
-
-            # images
-            # ------
-            # <img 
-            # alt="bla bla bla"
-            # data-fullres-src="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value" 
-            # data-fullres-src-type="image/png" 
-            # data-id="2f8fe6dc-10b8-c046-ba5b-c6ccf2c8884a" 
-            # data-index="2" 
-            # data-options="printout" 
-            # data-src-type="image/png" 
-            # height="842" 
-            # src="https://graph.microsoft.com/v1.0/users('laurent@burais.fr')/onenote/resources/0-158d4dc3eb09c647b6cb9c4759dc3f69!1-34CFFB16AE39C6B3!335924/$value" 
-            # width="595"
-            # />
-
-            for tag in soup.select('img[src]'):
-                resource = dict(empty)
-                resource['name'] = re.search( r'^.*resources/(.*?)!', tag['src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
-                resource['url'] = tag['src']
-                resource['type'] = 'image'
-
-                resources += [ resource ]
-
-                resource = dict(empty)
-                resource['name'] = re.search( r'^.*resources/(.*?)!', tag['data-fullres-src']).group(1) + '.' + tag['data-src-type'].replace('image/', '')
-                resource['url'] = tag['data-fullres-src']
-                resource['type'] = 'fullres'
-
-                resources += [ resource ]
-
-            for resource in resources:
-                path = resource['parent'].split('!')
-                path.reverse()
-                resource['filename'] = os.path.join( _files_directory, 
-                                                    os.path.sep.join(path),
-                                                    resource['name'] )
-
-
-            return json.dumps( resources )
-
-            #if len(resources) > 0: return json.dumps( resources )
-            #else: return nan
-
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        myprint( '', line=True, title='GET ONENOTE RESOURCES')
-        
-        if 'onenote_attachments' not in elements:
-            elements['onenote_attachment'] = nan
-
-        cond = (~elements['onenote_content'].isna())
-
-        myprint( 'Processing {} attachments out of {} contents'. format( len(elements[cond]), 
-                                                                         len(elements[(~elements['onenote_content'].isna())])))
-
-        elements.loc[cond, 'onenote_attachments'] = _elements[cond].apply(_get_resource, axis='columns')
-
-        cond = (~_elements['onenote_content'].isna())
-        cond &= (_elements['onenote_attachments'].isna())
-
-        if len(_elements[cond]) > 0: myprint( 'missing {} attachments'. format(len(_elements[cond])), prefix="...")
-
-    except:
-        exc_type, exc_obj, exc_tb = sys.exc_info()
-        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        myprint("Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+        myprint("Boddy error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
 
     return elements
 
@@ -625,21 +603,6 @@ def next():
 
     try:
     
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # set parent
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        myprint( '', line=True, title='SET ONENOTE PARENT' )
-
-        _elements['onenote_parent'] = nan
-
-        if 'onenote_parentNotebook.id' in _elements.columns.to_list():
-            _elements.loc[~_elements['onenote_parentNotebook.id'].isna(), 'onenote_parent'] = _elements['onenote_parentNotebook.id']
-        if 'onenote_parentSectionGroup.id' in _elements.columns.to_list():
-            _elements.loc[~_elements['onenote_parentSectionGroup.id'].isna(), 'onenote_parent'] = _elements['onenote_parentSectionGroup.id']
-        if 'onenote_parentSection.id' in _elements.columns.to_list():
-            _elements.loc[~_elements['onenote_parentSection.id'].isna(), 'onenote_parent'] = _elements['onenote_parentSection.id']
-
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # reorganize elements
         # -------------------------------------------------------------------------------------------------------------------------------------------
@@ -685,83 +648,6 @@ def next():
         _elements.loc[cond, 'onenote_merged'] = True
 
         _elements.drop( columns=['tmp_found', 'tmp_name'], inplace=True)
-
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # load resources
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-
-        def _load_resource( resource ):
-
-            if not resource['filename']:
-                myprint("[{}] no filename for {}".format(resource['index'], resource['url']), prefix='  ...')
-                return resource
-
-            # test dates to check if load is mandatory
-            date_page = resource['date']
-            try:
-                date_page = dt.strptime(date_page, '%Y-%m-%dT%H:%M:%S.%fZ')
-            except:
-                date_page = dt.strptime(date_page, '%Y-%m-%dT%H:%M:%SZ')
-
-            try:
-                date_file = dt.fromtimestamp(os.path.getmtime( resource['filename'] ))
-            except:
-                date_file = date_page
-
-            # load file
-            if not os.path.isfile(resource['filename']) or (date_file < date_page):
-
-                myprint( '[{}] {}...'.format(resource['index'], resource['url'].replace('$value', 'content')), prefix='>')
-
-                if not os.path.isfile(resource['filename']): myprint( 'missing file', prefix='...' )
-                elif (date_file < date_page): myprint( 'outdated file', prefix='...' )
-
-                out_dir = os.path.dirname(resource['filename'])
-
-                if not os.path.isdir(out_dir):
-                    os.makedirs(out_dir)
-
-                try:
-                    data =  requests.get( resource['url'].replace('$value', 'content'), headers={'Authorization': 'Bearer ' + token} )
-                    try:
-                        iserror = ('error' in data.json())
-                        if iserror:
-                            myprint( 'error: {} - {}'.format(data.json()['error']['code'], data.json()['error']['message']) )
-                    except:
-                        iserror = False
-                        with open(resource['filename'], 'wb') as fs:
-                            fs.write(data.content) 
-
-                        myprint( '[{}] {}: {} bytes'.format( resource['index'], 
-                                                                resource['filename'], 
-                                                                os.path.getsize(resource['filename']) ), 
-                                    prefix='...' )
-
-                        resource['processed'] = True
-                except:
-                    exc_type, exc_obj, exc_tb = sys.exc_info()
-                    myprint( 'error: {}'.format(exc_obj), prefix='...' )
-            else:
-                    resource['processed'] = True
-
-            return resource
-
-        cond = (~_elements['onenote_attachments'].isna())
-        resources = _elements[cond]['onenote_attachments'].apply( lambda x: json.loads(x) )
-        if len(resources) > 0: 
-            myprint( '', line=True, title='LOAD ONENOTE RESOURCES')
-
-            resources = resources.apply(pd.Series).stack().reset_index(drop=True).apply(pd.Series)
-
-            nb = len(resources)
-            myprint( 'Processing {} resources'. format(nb))
-            resources['index'] = range(nb, 0, -1)        
-            resources['processed'] = False       
-            
-            if len(resources) > 0: 
-                resources = resources.apply(_load_resource, axis='columns')
-
-            myprint( '.. missing {} resources out of {}'. format(len(resources[resources['processed']==False]), nb))
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
         # set body
