@@ -232,9 +232,17 @@ if __name__ == "__main__":
 
             token = get_token(microsoft_config.SCOPE)
 
+            get = what
+            url = None
+            if what not in ['notebooks', 'contents', 'resources', 'resources']:
+                get = 'notebooks'
+                url = what
+
             onenote_elements = onenote.read( directory = FOLDER_STATIC,
                                              token = token['access_token'],
-                                             notebookUrl = None if what in ['all'] else what )
+                                             get = get,
+                                             notebookUrl = url,
+                                             elements = elements )
 
             elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
 
