@@ -566,41 +566,42 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
 
             # drop columns
 
-            to_drop = [
-                r'isDefault',
-                r'userRole',
-                r'isShared',
-                r'By\.user\.id',
-                r'By\.user\.displayName',
-                r'Url\.href',
-                r'Url',
-                r'odata\.context',
-                r'parent.*\.id',
-                r'parent.*\.displayName',
-                r'parent.*\.self',
-                r'parentSectionGroup',
-                r'createdByAppId',
-                r'onenote_file_ok',
-            ]
-            drop_list = []
+            if get not in ['catalog']:
+                to_drop = [
+                    r'isDefault',
+                    r'userRole',
+                    r'isShared',
+                    r'By\.user\.id',
+                    r'By\.user\.displayName',
+                    r'Url\.href',
+                    r'Url',
+                    r'odata\.context',
+                    r'parent.*\.id',
+                    r'parent.*\.displayName',
+                    r'parent.*\.self',
+                    r'parentSectionGroup',
+                    r'createdByAppId',
+                    r'onenote_file_ok',
+                ]
+                drop_list = []
 
-            for key in read_elements:
-                for val in to_drop:
-                    if re.search( val, key): 
-                        drop_list += [ key ]
-                        break
+                for key in read_elements:
+                    for val in to_drop:
+                        if re.search( val, key): 
+                            drop_list += [ key ]
+                            break
 
-            to_keep = [
-                'onenote_contentUrl',
-                'onenote_resourceUrl',
-            ]
+                to_keep = [
+                    'onenote_contentUrl',
+                    'onenote_resourceUrl',
+                ]
 
-            for key in drop_list:
-                if key in to_keep:
-                    drop_list.remove(key)
+                for key in drop_list:
+                    if key in to_keep:
+                        drop_list.remove(key)
 
-            #read_elements.drop( columns=drop_list, inplace=True )
-            myprint( '{}'.format(drop_list) )
+                #read_elements.drop( columns=drop_list, inplace=True )
+                #myprint( '{}'.format(drop_list) )
 
         except:
             exc_type, exc_obj, exc_tb = sys.exc_info()
