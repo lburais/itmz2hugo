@@ -26,27 +26,24 @@ timestamp = None
 # #################################################################################################################################
 # ELEMENT
 # #################################################################################################################################
-# Must have columns:
-#   - id
-#   - source: [onenote | itmz | notes]
-#   - what: [notebook | group | section | page | topic]
-#   - type: [page | post | comment]
-#   - title
-#   - created
-#   - modified
-#   - authors
-#   - slug
-#   - parent
-#   - childs
-#   - body
-#   - resources
-#       - type: [image | fullres | object]
-#       - name
-#       - url
-#       - filename
-#       - date
 
-ELEMENT_COLUMNS=['source','what','type','id','number','title','created','modified','authors','slug','top','parent','childs','body']
+ELEMENT_COLUMNS=[
+    'source',       # onenote | itmz | notes
+    'what',
+    'type',
+    'id',           # unique identifier
+    'number',
+    'title',
+    'created',
+    'modified',
+    'authors',
+    'slug',
+    'top',
+    'parent',
+    'childs',
+    'publish',      # should be published: True | False
+    'body'
+]
 
 def empty_elements():
     return pd.DataFrame( columns = ELEMENT_COLUMNS )

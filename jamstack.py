@@ -234,7 +234,7 @@ if __name__ == "__main__":
 
             get = what
             url = None
-            if what not in ['notebooks', 'contents', 'resources', 'resources']:
+            if what not in ['notebooks', 'content', 'resources']:
                 get = 'notebooks'
                 url = what
 
