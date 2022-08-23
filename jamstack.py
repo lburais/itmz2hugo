@@ -134,8 +134,9 @@ if __name__ == "__main__":
     # Variable
     # =============================================================================================================================
 
-    FOLDER_STATIC = os.path.join( os.path.dirname(__file__), 'static')
-    FOLDER_SITE = os.path.join( os.path.dirname(__file__), 'site')
+    FOLDER = os.path.dirname(__file__)
+    FOLDER_STATIC = os.path.join( FOLDER, 'static')
+    FOLDER_SITE = os.path.join( FOLDER, 'site')
 
     FOLDER_ITMZ = "/Volumes/library/MindMap"
 
@@ -211,8 +212,10 @@ if __name__ == "__main__":
     def one_element():
         element_id = request.args.get('id')
         tmp = elements[elements['id'] == element_id]
-        content = '<!DOCTYPE html><html lang="en"><head></head><body!>' + tmp.iloc[0]['body'] if len(tmp) == 1 else '[{}]: {} ???\n{}'.format(element_id, len(tmp), tmp) + '</body></html>'
-        return content
+        if len(tmp) == 1:
+            return '<!DOCTYPE html><html lang="en"><head></head><body!>' + tmp.iloc[0]['body'].replace(FOLDER,'')
+        else:
+            return '[{}]: {} ???\n{}'.format(element_id, len(tmp), tmp) + '</body></html>'
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # PARSE 

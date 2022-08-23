@@ -87,10 +87,13 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
 
                 # what: 'notebooks', 'sectionGroups', 'sections', 'pages', 'content', 'resources
                 what = re.search( r'^.*/onenote/(.*)$', url ).group(1).split("/")
+                collection = True
                 if what[-1] in ['notebooks', 'sectionGroups', 'sections', 'pages', 'content', 'resources']:
                     if what[0] in ['resources']: what = what[0]
                     else: what = what[-1]
-                else: what = what[0]
+                else: 
+                    what = what[0]
+                    collection = False
 
                 # id: a-bbb!c-ddd!eee or c-ddd!eee
                 identifier = None            
@@ -100,6 +103,9 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
 
                 # to get page hierarchy
                 if what in ['pages']: get_url += '?pagelevel=true'
+
+                # to get section hierarchy
+                if what in ['notebooks', 'sectionGroups', 'sections'] and collection: get_url += '?orderby=id asc'
 
                 while get_url:
                     myprint( '[{} - {}] {}'.format(what, identifier, get_url), prefix='>' )
@@ -114,6 +120,7 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
                                                             onenote_response.json()['error']['message']) )
                             break
                         else:
+
                             # .......................................................................................................................
                             # ONENOTE JSON NOTEBOOK | SECTIONGROUP | SECTION | PAGE
                             # .......................................................................................................................
@@ -151,8 +158,9 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
 
                                 if ('@odata.nextLink' in onenote_response.json() or page_count > 0) and (len(onenote_objects) > 0):
                                     # paginate
-                                    get_url = url
-                                    get_url += '?{}'.format('pagelevel=true&' if what in ['pages'] else '')
+                                    get_url = url + '?'
+                                    if what in ['pages']: get_url += 'pagelevel=true&'
+                                    if what in ['notebooks', 'sectionGroups', 'sections'] and collection: get_url += 'orderby=id asc&'
                                     get_url += '$top={}'.format(page_nb)
                                     get_url += '&$skip={}'.format(page_count)
                                 else:
@@ -541,7 +549,7 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
             def _set_number( row ):
                 cond = read_elements['parent'] == row['id']
                 if len(read_elements[cond]) > 0:
-                    read_elements.loc[cond, 'number'] = [(row['number'] + '.' + str(x)) for x in list(range( 1, len(read_elements[cond]) +1 ))]
+                    read_elements.loc[cond, 'number'] = [(row['number'] + '.' + str(x).zfill(3)) for x in list(range( 1, len(read_elements[cond]) +1 ))]
                     read_elements[cond].apply(_set_number, axis='columns')
 
             read_elements['number'] = nan
@@ -549,7 +557,7 @@ def read( token, notebookUrl=None, directory=None, get='notebooks', elements=emp
                 read_elements.sort_values(by=['onenote_order'], inplace=True)
 
                 cond = read_elements['what'].isin(['notebooks'])
-                read_elements.loc[cond, 'number'] = [str(x) for x in list(range( 1, len(read_elements[cond]) +1 ))] 
+                read_elements.loc[cond, 'number'] = [str(x).zfill(2) for x in list(range( 1, len(read_elements[cond]) +1 ))] 
                 cond = ~read_elements['number'].isna()
                 read_elements[cond].apply(_set_number, axis='columns')
 
@@ -629,13 +637,15 @@ def reorganize( elements ):
     try:
         myprint( '', line=True, title='REORGANIZE ONENOTE ELEMENTS' )
 
-        def _reorganize( row ):
+        def _readdress( row ):
 
             body = row['onenote_content']
 
+
             # readdress resources
             resources = elements[elements['onenote_id'].isin( row['onenote_resources'] )]
-            resources = dict(zip(resources['onenote_self'].replace('content','$value'), resources['onenote_file_name']))
+            resources = dict(zip(resources['onenote_self'].str.replace('/content','/$value'), resources['onenote_file_name']))
+            myprint( resources )
             for url, name in resources.items():
                 body = body.replace( url, name )
 
@@ -675,7 +685,9 @@ def reorganize( elements ):
             # stripped
 
             if len(soup.body.contents) > 0:
-                body = str( soup.body.contents[0] )
+                body = ''.join([str(i) for i in soup.body.contents]).strip()
+            else:
+                body = '<br>' # to avoid consider empty
 
             return body
 
@@ -683,9 +695,21 @@ def reorganize( elements ):
             cond = ~elements['onenote_content'].isna()
             cond &= len(elements['onenote_resources']) > 0
             
-            myprint( 'reorganizing {} contents'.format(len(elements[cond])), prefix='...' )
+            myprint( 'readdressing {} contents'.format(len(elements[cond])), prefix='...' )
 
-            elements.loc[cond, 'body'] = elements[cond].apply( _reorganize, axis='columns' )
+            elements.loc[cond, 'body'] = elements[cond].apply( _readdress, axis='columns' )
+
+        # set page body
+        def _set_body( row ):
+            cond = elements['onenote_parent'] == row['onenote_id']
+            return elements[cond].iloc[0]['body'] if len(elements[cond]) == 1 else ''
+
+        if 'onenote_content' in elements :
+            cond = elements['onenote_what'].isin( ['pages'] )
+            
+            myprint( 'set {} page body'.format(len(elements[cond])), prefix='...' )
+
+            elements.loc[cond, 'body'] = elements[cond].apply( _set_body, axis='columns' )
 
         return elements
 

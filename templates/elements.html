@@ -38,31 +38,33 @@
       </tr>
     </thead>
     <tbody>
-    {% for x in result.elements %}
-      <tr>
-        <td>
-          {% if x.body is string %}
-            <a class="btn btn-secondary" href="/element?id={{ x.id }}"" target="_blank" role="button">Display</a>
-          {% endif %}
-        </td>
-        <td>{{ x.source }}.{{ x.what }}<br>[{{ x.type }}]</td>
-        <td>{{ x.id }}<br>[{{ x.parent }}]<br>[{{ x.childs }}]</td>
-        <td>{{ x.title }}</td>
-        <td>
-          {% if x.modified > x.created %}
-            {{ x.modified }}
-          {% else %}
-            {{ x.created }}
-          {% endif %}
-        </td>
-        <td>{{ x.authors }}</td>
-        <td>
-          {% if x.body is string %}
-            {{ x.body }}
-          {% endif %}
-        </td>
-      </tr>
-    {% endfor %}
+      {% for x in result.elements %}
+        {% if x.publish %}
+          <tr>
+            <td>
+              {% if x.body is string %}
+                <a class="btn btn-secondary" href="/element?id={{ x.id }}"" target="_blank" role="button">Display</a>
+              {% endif %}
+            </td>
+            <td>{{ x.source }}.{{ x.what }}<br>[{{ x.type }}]</td>
+            <td>{{ x.id }}<br>[{{ x.parent }}]<br>[{{ x.childs }}]</td>
+            <td>{{ x.title }}</td>
+            <td>
+              {% if x.modified > x.created %}
+                {{ x.modified }}
+              {% else %}
+                {{ x.created }}
+              {% endif %}
+            </td>
+            <td>{{ x.authors }}</td>
+            <td>
+              {% if x.body is string %}
+                {{ x.body }}
+              {% endif %}
+            </td>
+          </tr>
+        {% endif %}
+      {% endfor %}
     </tbody>
 </table>
 <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -72,8 +74,9 @@
   $(document).ready(function () {
     $('#data').DataTable({
       columns: [
-        {orderable: false, searchable: false},
-        {orderable: true, searchable: true},
+        {orderable: true, searchable: false},
+        {orderable: false, searchable: true},
+        {orderable: false, searchable: true},
         {orderable: false, searchable: true},
         {orderable: false, searchable: true},
         {orderable: false, searchable: false},
