@@ -7,6 +7,7 @@
     <a class="btn btn-success" href="/clear" role="button">Clear files</a>
     <a class="btn btn-success" href="/clean" role="button">Clean elements</a>
     <a class="btn btn-success" href="/elements" role="button">Refresh</a>
+    <a class="btn btn-success" href="/excel" role="button">Excel</a>
     <a class="btn btn-danger" href="/" role="button">Back Home</a>
     <input class="form-check-input" type="checkbox" value="" id="force">
     <label class="form-check-label" for="flexCheckDefault">
@@ -47,7 +48,7 @@
               {% endif %}
             </td>
             <td>{{ x.source }}.{{ x.what }}<br>[{{ x.type }}]</td>
-            <td>{{ x.id }}<br>[{{ x.parent }}]<br>[{{ x.childs }}]</td>
+            <td>{{ x.id }}<br>P[{{ x.parent }}]<br>C[{{ x.childs }}]</td>
             <td>{{ x.title }}</td>
             <td>
               {% if x.modified > x.created %}

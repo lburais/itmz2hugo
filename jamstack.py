@@ -235,11 +235,19 @@ if __name__ == "__main__":
 
             token = get_token(microsoft_config.SCOPE)
 
-            get = what
-            url = None
-            if what not in ['notebooks', 'content', 'resources']:
+            # source=onenote
+            # ALL NOTEBOOKS    what=notebooks
+            # ALL CONTENTS     what=content
+            # ALL RESOURCES    what=resources
+            # ONE NOTEBOOK     what=OneNote notebook url=onenote_self
+
+            if what in ['notebooks', 'content', 'resources']:
+                get = what
+                url = None
+            else:
                 get = 'notebooks'
                 url = what
+                elements = elements[elements['top'] != url]
 
             onenote_elements = onenote.read( directory = FOLDER_STATIC,
                                              token = token['access_token'],
@@ -247,7 +255,10 @@ if __name__ == "__main__":
                                              notebookUrl = url,
                                              elements = elements )
 
-            elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
+            if what in ['notebooks', 'content', 'resources']:
+                elements = elements[~elements['source'].isin(['onenote'])]
+
+            elements = pd.concat( [ elements, onenote_elements ], ignore_index = True )
 
         if source in ['all', 'itmz']:
 
@@ -355,10 +366,7 @@ if __name__ == "__main__":
     def clean():
         global elements
 
-        for col in ELEMENT_COLUMNS:
-            if col in elements.columns.to_list():
-                if col not in ['source']:
-                    elements[col] = nan
+        elements = empty_elements()
 
         return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
                                                          'elements': elements.to_dict('records') })
@@ -366,6 +374,16 @@ if __name__ == "__main__":
     @app.route("/refresh")
     def refresh():
         global elements
+
+        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+                                                         'elements': elements.to_dict('records') })
+
+    @app.route("/excel")
+    def excel():
+        global elements
+
+        catalog = get_catalog(FOLDER_STATIC)
+        os.system('open "' + catalog[-1]['filename'] + '"')
 
         return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
                                                          'elements': elements.to_dict('records') })

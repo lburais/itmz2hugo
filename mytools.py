@@ -161,8 +161,6 @@ def save_excel( directory, elements, type=None ):
         if not type : timestamp = None
 
         myprint( "{} rows saved in file {}.".format(len(elements), out_file), prefix="..." )
-
-        if not type: os.system('open "' + out_file + '"')
        
     except:
         myprint( "Something went wrong with file {}.".format(out_file), prefix="..." )            
