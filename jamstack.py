@@ -227,6 +227,7 @@ if __name__ == "__main__":
 
         what = request.args.get('what')
         source = request.args.get('source')
+        url = request.args.get('url')
 
         if source in ['all', 'onenote']:
 
@@ -240,23 +241,19 @@ if __name__ == "__main__":
             # ALL CONTENTS     what=content
             # ALL RESOURCES    what=resources
             # ONE NOTEBOOK     what=OneNote notebook url=onenote_self
+            # REFRESH          what=refresh
 
-            if what in ['notebooks', 'content', 'resources']:
-                get = what
-                url = None
-            else:
-                get = 'notebooks'
-                url = what
-                elements = elements[elements['top'] != url]
+            onenote_elements = onenote.read( token = token['access_token'],
+                                             what = what,
+                                             url = url if url not in ['', 'nan', 'None'] else None,
+                                             directory = FOLDER_STATIC,
+                                             elements = elements if what in ['content', 'resources', 'refresh'] else empty_elements()
+                                           )
 
-            onenote_elements = onenote.read( directory = FOLDER_STATIC,
-                                             token = token['access_token'],
-                                             get = get,
-                                             notebookUrl = url,
-                                             elements = elements )
-
-            if what in ['notebooks', 'content', 'resources']:
+            if what in ['notebooks', 'content', 'resources', 'refresh']:
                 elements = elements[~elements['source'].isin(['onenote'])]
+            else:
+                elements = elements[elements['top'] != what]
 
             elements = pd.concat( [ elements, onenote_elements ], ignore_index = True )
 
@@ -289,8 +286,8 @@ if __name__ == "__main__":
             token = get_token(microsoft_config.SCOPE)
 
             onenote_elements = onenote.read( directory = FOLDER_STATIC,
-                                            token = token['access_token'], 
-                                            elements = elements )
+                                             token = token['access_token'], 
+                                             elements = elements )
 
             elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
 
