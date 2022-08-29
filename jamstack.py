@@ -17,6 +17,7 @@
 #   source venv/bin/activate
 #   python3 jamstack.py --output site --nikola --html
 #   python3 jamstack.py --output site --nikola --https
+#   python3 jamstack.py
 #
 #
 # Graph Explorer:
