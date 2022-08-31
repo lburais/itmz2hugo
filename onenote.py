@@ -42,8 +42,12 @@ EXCEPT_HANDLING = False
 
 def catalog( token ): 
 
+    cat = read( token=token, what='catalog' )
+    cat = cat[cat['what'].isin(['notebooks'])]
+    cat['what'] = 'content'
+
     return pd.concat( [ pd.DataFrame( {'source': ['onenote'], 'title': ['All Notebooks'], 'what': ['notebooks'], 'onenote_self': [None] } ),
-                        read( token=token, what='catalog' ),
+                        cat,
                         pd.DataFrame( {'source': ['onenote'], 'title': ['All Contents'], 'what': ['content'], 'onenote_self': [None] } ),
                         pd.DataFrame( {'source': ['onenote'], 'title': ['All Resources'], 'what': ['resources'], 'onenote_self': [None] } ),
                         pd.DataFrame( {'source': ['onenote'], 'title': ['Clear Resources'], 'what': ['clear'], 'onenote_self': [None] } ),
@@ -398,14 +402,6 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                 # pages
                 process_url(ME + "/pages?$pagelevel=true")
 
-                # else:
-
-                #     # id: a-bbb!c-ddd!eee or c-ddd!eee
-                #     identifier = None            
-                #     identifier = re.search( r'^.*/(\d-[\w]+!\d-[\w]+![\w]+).*', url )
-                #     if not identifier: identifier = re.search( r'^.*/(\d-[\w]+![\w]+).*', url )
-                #     if identifier: identifier = identifier.group(1)
-
                 # force content update
                 what = 'content'
 
@@ -418,8 +414,18 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
 
                 myprint( '', line=True, title='READ ONENOTE CONTENT' )
 
-                read_elements = read_elements[~read_elements['onenote_what'].isin(['content', 'resources'])]
-                read_elements[(~read_elements['onenote_contentUrl'].isna())]['onenote_contentUrl'].apply( lambda x: process_url(x) )
+                # remove content and resources (that will be re-added)
+                cond = read_elements['onenote_what'].isin(['content', 'resources'])
+                if url: cond &= read_elements['top'] == url
+                read_elements = read_elements[~cond]
+
+                # process contentUrl
+                cond = ~read_elements['onenote_what'].isin(['content', 'resources'])
+                if url: cond &= read_elements['top'] == url
+                cond &= ~read_elements['onenote_contentUrl'].isna()
+
+                myprint( 'Processing {} elements...'.format(len(read_elements[cond])), prefix='...')
+                read_elements[cond]['onenote_contentUrl'].apply( lambda x: process_url(x) )
 
                 #for resources update
                 what = 'resources'
@@ -427,15 +433,18 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
             if what in ['resources']  and (len(read_elements) > 0) and 'onenote_resourceUrl' in read_elements and 'onenote_file_name' in read_elements:
                 myprint( '', line=True, title='READ ONENOTE RESOURCES' )
 
-                # check file_name
                 read_elements['onenote_file_ok'] = True
                 read_elements['onenote_file_date'] = nan
 
                 # file does not exist
+                cond = read_elements['what'].isin(['resources'])
+                if url: cond &= read_elements['top'] == url
                 cond = ~read_elements['onenote_file_name'].isna()
                 read_elements.loc[cond, 'onenote_file_ok'] = read_elements[cond]['onenote_file_name'].apply( lambda x: os.path.isfile(x) )
 
                 # get file mtime
+                cond = read_elements['what'].isin(['resources'])
+                if url: cond &= read_elements['top'] == url
                 cond = ~read_elements['onenote_file_name'].isna() & read_elements['onenote_file_ok']
                 read_elements.loc[cond, 'onenote_file_date'] = \
                     read_elements[cond]['onenote_file_name'].apply( lambda x: dt.fromtimestamp(os.path.getmtime(x)) )
@@ -449,45 +458,56 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                     else: tmp_date = nan
 
                     try:
-                        tmp_date = dt.strptime(tmp.iloc[0]['date'], '%Y-%m-%dT%H:%M:%S.%fZ')
+                        tmp_date = dt.strptime(tmp_date, '%Y-%m-%dT%H:%M:%S.%fZ')
                     except:
                         try:
-                            tmp_date = dt.strptime(tmp.iloc[0]['date'], '%Y-%m-%dT%H:%M:%SZ')
+                            tmp_date = dt.strptime(tmp_date, '%Y-%m-%dT%H:%M:%SZ')
                         except:
                             tmp_date = nan
 
                     return tmp_date
 
-                read_elements['onenote_date'] = read_elements.apply( _set_date, axis = 'columns' )
+                read_elements['onenote_date'] = nan
+                cond = read_elements['what'].isin(['resources'])
+                if url: cond &= read_elements['top'] == url
+                read_elements.loc[cond, 'onenote_date'] = read_elements.apply( _set_date, axis = 'columns' )
 
                 # no page date to compare to
+                cond = read_elements['what'].isin(['resources'])
+                if url: cond &= read_elements['top'] == url
                 cond = ~read_elements['onenote_file_name'].isna() & read_elements['onenote_file_ok'] & read_elements['onenote_date'].isna()
                 read_elements.loc[cond, 'onenote_file_ok'] = False
 
                 # file older than page date
-                cond = ~read_elements['onenote_file_name'].isna() & read_elements['onenote_file_ok']
+                cond = read_elements['what'].isin(['resources'])
+                if url: cond &= read_elements['top'] == url
+                cond &= ~read_elements['onenote_file_name'].isna() & read_elements['onenote_file_ok']
                 read_elements.loc[cond, 'onenote_file_ok'] = \
                     read_elements[cond].apply( lambda x: (x['onenote_file_date'] > x['onenote_date']), axis = 'columns' )
 
-                cond = (read_elements['onenote_file_ok'] == False)
+                cond = read_elements['what'].isin(['resources'])
+                if url: cond &= read_elements['top'] == url
+                cond &= (read_elements['onenote_file_ok'] == False)
                 file_list = ['onenote_file_name', 'onenote_file_ok', 'onenote_date', 'onenote_file_date', 'onenote_resourceUrl' ]
                 if len(read_elements[cond]) > 0:
-                    myprint( read_elements[cond][file_list].replace(to_replace=r"^.*/onenote/", value=".../", regex=True) )
+                    myprint( read_elements[cond][:20][file_list].replace(to_replace=r"^.*/onenote/", value=".../", regex=True) )
 
                 del read_elements['onenote_date']
 
                 # all set 
 
-                cond = (~read_elements['onenote_resourceUrl'].isna())
+                cond = read_elements['what'].isin(['resources'])
+                if url: cond &= read_elements['top'] == url
+                cond &= (~read_elements['onenote_resourceUrl'].isna())
                 cond &= (~read_elements['onenote_file_name'].isna())
                 cond &= (~read_elements['onenote_file_ok'])
                 
                 if len(read_elements[cond]) > 0:
-                    myprint( 'loading {} resources'.format(len(read_elements[cond])), prefix='...' )
+                    myprint( 'Loading {} resources...'.format(len(read_elements[cond])), prefix='...' )
                     read_elements[cond]['onenote_resourceUrl'].apply( lambda x: process_url(x) )
                 else:
                     cond = (~read_elements['onenote_file_name'].isna())
-                    myprint( 'all {} files ok, no resource to be loaded'.format(len(read_elements[cond])), prefix='...' )
+                    myprint( 'All {} files ok, no resource to be loaded'.format(len(read_elements[cond])), prefix='...' )
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -645,7 +665,7 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                     read_elements['short'] = read_elements['title'].str[:30]
                     if len(read_elements) > 20: myprint( 'first 20 out of {} elements'.format(len(read_elements)))
                     display_list =['number', 'id', 'what', 'short', 'parent']
-                    display_list += ['onenote_parent_context', 'onenote_parentContent.id', 'onenote_parentPage.id', 'onenote_parentSection.id', 'onenote_parentSectionGroup.id', 'onenote_parentNotebook.id']
+                    #display_list += ['onenote_parent_context', 'onenote_parentContent.id', 'onenote_parentPage.id', 'onenote_parentSection.id', 'onenote_parentSectionGroup.id', 'onenote_parentNotebook.id']
                     for val in reversed(display_list):
                         if val not in read_elements:
                             display_list.remove(val)

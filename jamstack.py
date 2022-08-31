@@ -243,6 +243,9 @@ if __name__ == "__main__":
             # ALL RESOURCES    what=resources
             # ONE NOTEBOOK     what=OneNote notebook url=onenote_self
             # REFRESH          what=refresh
+            # http://localhost:5000/parse?what=notebooks&url=https://graph.microsoft.com/v1.0/users/laurent@burais.fr/onenote/notebooks/0-34CFFB16AE39C6B3!4390&source=onenote
+            # http://localhost:5000/parse?what=content&url=None&source=onenote
+            # http://localhost:5000/parse?what=resources&url=None&source=onenote
 
             onenote_elements = onenote.read( token = token['access_token'],
                                              what = what,
@@ -251,12 +254,7 @@ if __name__ == "__main__":
                                              elements = elements if what in ['content', 'resources', 'refresh'] else empty_elements()
                                            )
 
-            if what in ['notebooks', 'content', 'resources', 'refresh']:
-                elements = elements[~elements['source'].isin(['onenote'])]
-            else:
-                elements = elements[elements['top'] != what]
-
-            elements = pd.concat( [ elements, onenote_elements ], ignore_index = True )
+            elements = pd.concat( [ elements[~elements['source'].isin(['onenote'])], onenote_elements ], ignore_index = True )
 
         if source in ['all', 'itmz']:
 
