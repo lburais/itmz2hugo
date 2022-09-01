@@ -136,24 +136,6 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
 
                                 onenote_objects = pd.json_normalize(onenote_objects['value'])
 
-                                # date
-                                onenote_objects['date'] = nan
-                                if 'lastModifiedDateTime' in onenote_objects:
-                                    onenote_objects['date'] = onenote_objects['lastModifiedDateTime']
-                                if 'createdDateTime' in onenote_objects:
-                                     onenote_objects.loc[onenote_objects['date'].isna(), 'date'] = onenote_objects['createdDateTime']
-
-                                # # parent
-                                # onenote_objects['parent_context'] = nan
-                                # for context in ['parentSection.id', 'parentSectionGroup.id', 'parentNotebook.id']:
-                                #     if context in onenote_objects:
-                                #         cond = onenote_objects['parent_context'].isna()
-                                #         onenote_objects.loc[cond, 'parent'] = onenote_objects[cond][context]
-                                #         onenote_objects.loc[cond, 'parent_context'] = context.replace('parent','').replace('.id','')
-
-                                # if what in ['pages', 'sectionGroups', 'sections'] and len(onenote_objects) > 0: 
-                                #     myprint(onenote_objects[['id', 'title' if 'title' in onenote_objects else 'displayName', 'parent', 'parent_context']].replace(r'.*/onenote','...'))
-
                                 # paginate
                                 if ('@odata.nextLink' in onenote_response.json() or page_count > 0) and (len(onenote_objects) > 0):
                                     get_url = url + '&' if what in ['pages'] else '?'
@@ -188,8 +170,8 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                                                                   'onenote_parentPage.id': [tmp_parent], 
                                                                   'onenote_createdDateTime': [tmp_created], 
                                                                   'onenote_lastModifiedDateTime': [tmp_modified], 
-                                                                  'onenote_content': [onenote_response.text],
-                                                                  'onenote_resources': [[]],
+                                                                  'onenote_content': [onenote_response.text.replace('_x000D_','')],
+                                                                  'onenote_resources': [''],
                                                                 } )
 
                                 # add resources objects
@@ -203,7 +185,7 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                                     onenote_resources['onenote_lastModifiedDateTime'] = tmp_modified
                                     onenote_resources['onenote_self'] = onenote_resources['onenote_resourceUrl']
                                     onenote_objects['onenote_resources'] = \
-                                        onenote_objects['onenote_id'].apply(lambda x: onenote_resources['onenote_id'].to_list())
+                                        onenote_objects['onenote_id'].apply(lambda x: ','.join(onenote_resources['onenote_id'].to_list()))
                                     onenote_objects = pd.concat( [ onenote_objects, onenote_resources ], ignore_index = True ) 
 
                                 get_url = None
@@ -278,13 +260,6 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                 myprint( '{} {} loaded'.format(len(get_elements), what), prefix='...' )
 
                 if len(get_elements) > 0:
-
-                    # recursive
-                    # if identifier:
-                    #     for u in ['onenote_sectionsUrl', 'onenote_pagesUrl', 'onenote_sectionGroupsUrl']:
-                    #         if u in get_elements:
-                    #             get_elements[(~get_elements[u].isna())][u].apply( lambda x: process_url(x) )
-
                     # concat 
                     if len(read_elements) > 0: read_elements = pd.concat([read_elements, get_elements], ignore_index=True)
                     else: read_elements = get_elements.copy()
@@ -427,8 +402,11 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                 myprint( 'Processing {} elements...'.format(len(read_elements[cond])), prefix='...')
                 read_elements[cond]['onenote_contentUrl'].apply( lambda x: process_url(x) )
 
-                #for resources update
+                # for resources update
                 what = 'resources'
+
+                # NEED REORG TO SET TOP
+                read_elements = normalize( read_elements )
 
             if what in ['resources']  and (len(read_elements) > 0) and 'onenote_resourceUrl' in read_elements and 'onenote_file_name' in read_elements:
                 myprint( '', line=True, title='READ ONENOTE RESOURCES' )
@@ -506,178 +484,27 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                     myprint( 'Loading {} resources...'.format(len(read_elements[cond])), prefix='...' )
                     read_elements[cond]['onenote_resourceUrl'].apply( lambda x: process_url(x) )
                 else:
-                    cond = (~read_elements['onenote_file_name'].isna())
+                    cond = read_elements['what'].isin(['resources'])
+                    if url: cond &= read_elements['top'] == url
+                    cond &= (~read_elements['onenote_file_name'].isna())
                     myprint( 'All {} files ok, no resource to be loaded'.format(len(read_elements[cond])), prefix='...' )
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        try:
-            if len(read_elements) > 0:
+        read_elements = normalize( read_elements )
 
-                # source
-                read_elements['source'] = 'onenote'
-
-                # what
-                read_elements['what'] = read_elements['onenote_what'] if 'onenote_what' in read_elements else nan
-
-                # type
-                read_elements['type'] = 'post' 
-                read_elements.loc[read_elements['what'].isin(['pages']), 'type'] = 'page' 
-
-                # id
-                read_elements['id'] = read_elements['onenote_id'] if 'onenote_id' in read_elements else nan
-
-                # title
-                read_elements['title'] = nan
-                if 'onenote_title' in read_elements: 
-                    read_elements['title'] = read_elements['onenote_title']
-                if 'onenote_displayName' in read_elements: 
-                    cond = read_elements['title'].isna()
-                    read_elements.loc[cond, 'title'] = read_elements[cond]['onenote_displayName']
-
-                # dates
-                read_elements['created'] = read_elements['onenote_createdDateTime'] if 'onenote_createdDateTime' in read_elements else nan
-                read_elements['modified'] = read_elements['onenote_lastModifiedDateTime'] if 'onenote_lastModifiedDateTime' in read_elements else nan
-
-                # authors
-                read_elements['authors'] = nan
-                for col in ['onenote_createdBy.user.displayName', 'onenote_lastModifiedBy.user.displayName']:
-                    if col in read_elements:
-                        cond = ~read_elements[col].isna()
-                        read_elements.loc[cond, 'authors'] = read_elements[cond][col]
-
-                # slug
-                read_elements['slug'] = read_elements['id'].apply( lambda x: slugify(x) )
-
-                # parent
-                read_elements['onenote_parent_context'] = nan
-                read_elements['onenote_parent'] = nan
-                for context in ['onenote_parentContent.id', 'onenote_parentPage.id', 'onenote_parentSection.id', 'onenote_parentSectionGroup.id', 'onenote_parentNotebook.id']:
-                    if context in read_elements:
-                        cond = read_elements['onenote_parent_context'].isna()
-                        cond &= ~read_elements[context].isna()
-                        read_elements.loc[cond, 'onenote_parent'] = read_elements[cond][context]
-                        read_elements.loc[cond, 'onenote_parent_context'] = context.replace('onenote_parent','').replace('.id','')
-                read_elements['parent'] = read_elements['onenote_parent'] if 'onenote_parent' in read_elements else nan
-
-                # sub pages
-                def _set_subpages( row ):
-                    cond = read_elements['onenote_parent'] == row['onenote_parent']
-                    cond &= read_elements['onenote_order'] == (row['onenote_order'] - 1)
-                    row['onenote_parent'] = read_elements[cond]['onenote_parent']
-
-                if what not in ['catalog'] and 'onenote_level' in read_elements:
-                    for level in range( 1, int(read_elements['onenote_level'].max(skipna=True)) + 1 ):
-                        read_elements[(read_elements['onenote_level'] == (level+1))].apply(_set_subpages, axis='columns')
-
-                # childs
-                def _set_childs( element ):
-                    cond = (read_elements['parent'] == element['id'] )
-                    cond &= (~read_elements['what'].isin(['content', 'resources']) )
-                    childs = read_elements[cond]['id']
-                    if len(childs) > 0: return childs.to_list()
-                    else: return []
-                read_elements['childs'] = read_elements.apply( _set_childs, axis='columns' ) if len(read_elements) > 0 else nan
-
-                # number
-                def _set_number( row ):
-                    cond = read_elements['parent'] == row['id']
-                    if len(read_elements[cond]) > 0:
-                        read_elements.loc[cond, 'number'] = [(row['number'] + '.' + str(x).zfill(3)) for x in list(range( 1, len(read_elements[cond]) +1 ))]
-                        read_elements[cond].apply(_set_number, axis='columns')
-
-                read_elements['number'] = nan
-                if what not in ['catalog']:
-                    if 'onenote_order' in read_elements:
-                        read_elements.sort_values(by=['onenote_order'], inplace=True)
-
-                    cond = read_elements['what'].isin(['notebooks'])
-                    read_elements.loc[cond, 'number'] = read_elements[cond]['id'].str.split(pat='!', expand=True)[1]
-                    #read_elements.loc[cond, 'number'] = read_elements[cond]['id']
-                    cond = ~read_elements['number'].isna()
-                    read_elements[cond].apply(_set_number, axis='columns')
-
-                read_elements.sort_values(by=['number'], inplace=True)
-
-                # top
-                def _set_top( row ):
-                    cond = read_elements['number'].str.startswith(row['number'], na=False)
-                    read_elements.loc[cond, 'top'] = row['onenote_self']
-
-                read_elements['top'] = nan
-                if what not in ['catalog']:
-                    cond = read_elements['what'].isin( ['notebooks'] )
-                    read_elements[cond].apply( _set_top, axis='columns' )
-
-                # path
-                # read_elements['path'] = read_elements.apply(lambda x: [], axis='columns') # pd.Series([] * len(read_elements))
-                # read_elements.loc[cond, 'path'] = read_elements[cond].apply( lambda x: x['path'] + [ row['id'] ], axis='columns' )
-                # read_elements.loc[cond, 'path'] = read_elements[cond]['path'].apply( lambda x: [ x ] )
-
-                # publish
-                read_elements['publish'] = True
-                read_elements.loc[read_elements['what'].isin(['content','resources']), 'publish'] = False
-
-                # reorganize
-                if what not in ['catalog']:
-                    read_elements = reorganize(read_elements)
-
-                # drop columns
-
-                # if get not in ['catalog']:
-                #     to_drop = [
-                #         r'isDefault',
-                #         r'userRole',
-                #         r'isShared',
-                #         r'By\.user\.id',
-                #         r'By\.user\.displayName',
-                #         r'Url\.href',
-                #         r'Url',
-                #         r'odata\.context',
-                #         r'parent.*\.id',
-                #         r'parent.*\.displayName',
-                #         r'parent.*\.self',
-                #         r'parentSectionGroup',
-                #         r'createdByAppId',
-                #         r'onenote_file_ok',
-                #     ]
-                #     drop_list = []
-
-                #     for key in read_elements:
-                #         for val in to_drop:
-                #             if re.search( val, key): 
-                #                 drop_list += [ key ]
-                #                 break
-
-                #     to_keep = [
-                #         'onenote_contentUrl',
-                #         'onenote_resourceUrl',
-                #     ]
-
-                #     for key in drop_list:
-                #         if key in to_keep:
-                #             drop_list.remove(key)
-
-                #     read_elements.drop( columns=drop_list, inplace=True )
-                #     myprint( '{}'.format(drop_list) )
-
-                if what not in ['catalog'] and len(read_elements) > 0: 
-                    read_elements['short'] = read_elements['title'].str[:30]
-                    if len(read_elements) > 20: myprint( 'first 20 out of {} elements'.format(len(read_elements)))
-                    display_list =['number', 'id', 'what', 'short', 'parent']
-                    #display_list += ['onenote_parent_context', 'onenote_parentContent.id', 'onenote_parentPage.id', 'onenote_parentSection.id', 'onenote_parentSectionGroup.id', 'onenote_parentNotebook.id']
-                    for val in reversed(display_list):
-                        if val not in read_elements:
-                            display_list.remove(val)
-                    cond = ~read_elements['id'].isna()
-                    myprint(read_elements.iloc[:30][display_list].replace(r'.*/onenote','...'))
-                    del read_elements['short']
-
-        except:
-            exc_type, exc_obj, exc_tb = sys.exc_info()
-            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            myprint("Normalize error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
-            raise
+        # display first elements if not just notebooks (catalog)
+        if len(read_elements[~read_elements['what'].isin(['notebooks'])]) > 0: 
+            if len(read_elements) > 20: myprint( '', line=True, title='FIRST 20 OF {} ONENOTE ELEMENTS'.format(len(read_elements)))
+            else: myprint( '', line=True, title='ONENOTE ELEMENTS')
+            read_elements['short'] = read_elements['title'].str[:30]
+            display_list =['number', 'id', 'what', 'short', 'parent']
+            for val in reversed(display_list):
+                if val not in read_elements:
+                    display_list.remove(val)
+            cond = ~read_elements['id'].isna()
+            myprint(read_elements.iloc[:30][display_list].replace(r'.*/onenote','...'))
+            del read_elements['short']
 
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -688,63 +515,192 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
     return read_elements
 
 # ###################################################################################################################################################
+# NORMALIZE
+# ###################################################################################################################################################
+
+def normalize( elements ): 
+    try:
+        myprint( 'Normalizing {} elements'.format(len(elements)), prefix='...' )
+
+        if len(elements) > 0:
+
+            # source
+            elements['source'] = 'onenote'
+
+            # what
+            elements['what'] = elements['onenote_what'] if 'onenote_what' in elements else nan
+
+            # type
+            elements['type'] = 'post' 
+            elements.loc[elements['what'].isin(['pages']), 'type'] = 'page' 
+
+            # id
+            elements['id'] = elements['onenote_id'] if 'onenote_id' in elements else nan
+
+            # title
+            elements['title'] = nan
+            if 'onenote_title' in elements: 
+                elements['title'] = elements['onenote_title']
+            if 'onenote_displayName' in elements: 
+                cond = elements['title'].isna()
+                elements.loc[cond, 'title'] = elements[cond]['onenote_displayName']
+
+            # dates
+            elements['created'] = elements['onenote_createdDateTime'] if 'onenote_createdDateTime' in elements else nan
+            elements['modified'] = elements['onenote_lastModifiedDateTime'] if 'onenote_lastModifiedDateTime' in elements else nan
+
+            # authors
+            elements['authors'] = nan
+            for col in ['onenote_createdBy.user.displayName', 'onenote_lastModifiedBy.user.displayName']:
+                if col in elements:
+                    cond = ~elements[col].isna()
+                    elements.loc[cond, 'authors'] = elements[cond][col]
+
+            # slug
+            elements['slug'] = elements['id'].apply( lambda x: slugify(x) )
+
+            # parent
+            elements['onenote_parent_context'] = nan
+            elements['onenote_parent'] = nan
+            ids =  ['onenote_parentContent.id', 'onenote_parentPage.id']
+            ids += ['onenote_parentSection.id', 'onenote_parentSectionGroup.id', 'onenote_parentNotebook.id']
+            for context in ids:
+                if context in elements:
+                    cond = elements['onenote_parent_context'].isna()
+                    cond &= ~elements[context].isna()
+                    elements.loc[cond, 'onenote_parent'] = elements[cond][context]
+                    elements.loc[cond, 'onenote_parent_context'] = context.replace('onenote_parent','').replace('.id','')
+            elements['parent'] = elements['onenote_parent'] if 'onenote_parent' in elements else nan
+
+            # sub pages
+            def _set_subpages( row ):
+                cond = elements['onenote_parent'] == row['onenote_parent']
+                cond &= elements['onenote_order'] == (row['onenote_order'] - 1)
+                row['onenote_parent'] = elements[cond]['onenote_parent']
+
+            if (len(elements[~elements['what'].isin(['notebooks'])]) > 0) and  'onenote_level' in elements:
+                for level in range( 1, int(elements['onenote_level'].max(skipna=True)) + 1 ):
+                    elements[(elements['onenote_level'] == (level+1))].apply(_set_subpages, axis='columns')
+
+            # childs
+            def _set_childs( element ):
+                cond = (elements['parent'] == element['id'] )
+                cond &= (~elements['what'].isin(['content', 'resources']) )
+                childs = elements[cond]['id']
+                if len(childs) > 0: return childs.to_list()
+                else: return []
+            elements['childs'] = elements.apply( _set_childs, axis='columns' ) if len(elements) > 0 else nan
+
+            # number
+            def _set_number( row ):
+                cond = elements['parent'] == row['id']
+                if len(elements[cond]) > 0:
+                    elements.loc[cond, 'number'] = [(row['number'] + '.' + str(x).zfill(3)) for x in list(range( 1, len(elements[cond]) +1 ))]
+                    elements[cond].apply(_set_number, axis='columns')
+
+            elements['number'] = nan
+            if len(elements[~elements['what'].isin(['notebooks'])]) > 0: 
+                if 'onenote_order' in elements:
+                    elements.sort_values(by=['onenote_order'], inplace=True)
+
+                cond = elements['what'].isin(['notebooks'])
+                elements.loc[cond, 'number'] = elements[cond]['id'].str.split(pat='!', expand=True)[1]
+                cond = ~elements['number'].isna()
+                elements[cond].apply(_set_number, axis='columns')
+
+            elements.sort_values(by=['number'], inplace=True)
+
+            # top
+            def _set_top( row ):
+                cond = elements['number'].str.startswith(row['number'], na=False)
+                elements.loc[cond, 'top'] = row['onenote_self']
+
+            elements['top'] = nan
+            if len(elements[~elements['what'].isin(['notebooks'])]) > 0: 
+                cond = elements['what'].isin( ['notebooks'] )
+                elements[cond].apply( _set_top, axis='columns' )
+
+            # publish
+            elements['publish'] = True
+            elements.loc[elements['what'].isin(['content','resources']), 'publish'] = False
+
+            # reorganize
+            if len(elements[~elements['what'].isin(['notebooks'])]) > 0: 
+                elements = reorganize(elements)
+
+    except:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        myprint("Normalize error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+        raise
+
+    return elements
+
+# ###################################################################################################################################################
 # REORGANIZE
 # ###################################################################################################################################################
 
 def reorganize( elements ): 
     try:
-        myprint( '', line=True, title='REORGANIZE ONENOTE ELEMENTS' )
-
         def _readdress( row ):
+            nonlocal elements
 
             body = row['onenote_content']
 
-            # readdress resources
-            if 'onenote_id' in elements and 'onenote_resources' in elements and 'onenote_self' in elements and 'onenote_file_name' in elements:
-                resources = elements[elements['onenote_id'].isin( row['onenote_resources'] )]
-                resources = dict(zip(resources['onenote_self'].str.replace('/content','/$value'), resources['onenote_file_name']))
-                for url, name in resources.items():
-                    body = body.replace( url, name )
+            try:
 
-            soup = BeautifulSoup( body, features="html.parser" )
+                # readdress resources
+                if 'onenote_id' in elements and 'onenote_resources' in elements and 'onenote_self' in elements and 'onenote_file_name' in elements:
+                    resources = elements[ elements['onenote_id'].isin(row['onenote_resources'].split(',')) ]
+                    resources = dict(zip(resources['onenote_self'].str.replace('/content','/$value'), resources['onenote_file_name']))
+                    for url, name in resources.items():
+                        body = body.replace( url, name )
 
-            # absolute
-            # --------
-            # <body data-absolute-enabled="true" style="font-family:Calibri;font-size:11pt">
-            # <div style="position:absolute;left:48px;top:115px;width:576px">
+                soup = BeautifulSoup( body, features="html.parser" )
 
-            for tag in soup.select("body[data-absolute-enabled]"):
-                del tag["data-absolute-enabled"]
+                # absolute
+                # --------
+                # <body data-absolute-enabled="true" style="font-family:Calibri;font-size:11pt">
+                # <div style="position:absolute;left:48px;top:115px;width:576px">
 
-            tags = soup.find_all( 'div', style=re.compile("position:absolute") )
-            for tag in tags:
-                if (tag["style"].find("position:absolute") != -1):
-                    del tag["style"]
+                for tag in soup.select("body[data-absolute-enabled]"):
+                    del tag["data-absolute-enabled"]
 
-            # resize images
+                tags = soup.find_all( 'div', style=re.compile("position:absolute") )
+                for tag in tags:
+                    if (tag["style"].find("position:absolute") != -1):
+                        del tag["style"]
 
-            tags = soup.find_all( 'img' )
-            for tag in tags:
-                del tag['width']
-                del tag['height']
+                # resize images
 
-                tag['width'] = 1000
+                tags = soup.find_all( 'img' )
+                for tag in tags:
+                    del tag['width']
+                    del tag['height']
 
-            # resize objects
+                    tag['width'] = 1000
 
-            tags = soup.find_all( 'object' )
-            for tag in tags:
-                del tag['width']
-                del tag['height']
+                # resize objects
 
-                tag['width'] = 1000
+                tags = soup.find_all( 'object' )
+                for tag in tags:
+                    del tag['width']
+                    del tag['height']
 
-            # stripped
+                    tag['width'] = 1000
 
-            if len(soup.body.contents) > 0:
-                body = ''.join([str(i) for i in soup.body.contents]).strip()
-            else:
-                body = '<br>' # to avoid consider empty
+                # stripped
+
+                if len(soup.body.contents) > 0:
+                    body = ''.join([str(i) for i in soup.body.contents]).strip()
+                else:
+                    body = '<br>' # to avoid consider empty
+
+            except:
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                myprint("readdress error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+
 
             return body
 
@@ -752,12 +708,14 @@ def reorganize( elements ):
             cond = ~elements['onenote_content'].isna()
             cond &= len(elements['onenote_resources']) > 0
             
-            myprint( 'readdressing {} contents'.format(len(elements[cond])), prefix='...' )
+            myprint( 'Readdressing {} content and resources'.format(len(elements[cond])), prefix='...' )
 
             elements.loc[cond, 'body'] = elements[cond].apply( _readdress, axis='columns' )
 
         # set page body
         def _set_body( row ):
+            nonlocal elements
+
             if 'onenote_parent' in elements and 'onenote_id' in row:
                 cond = elements['onenote_parent'] == row['onenote_id']
                 return elements[cond].iloc[0]['body'] if len(elements[cond]) == 1 else ''
@@ -766,7 +724,7 @@ def reorganize( elements ):
         if 'onenote_what' in elements and 'body' in elements :
             cond = elements['onenote_what'].isin( ['pages'] )
             
-            myprint( 'set {} pages body'.format(len(elements[cond])), prefix='...' )
+            myprint( 'Setting body for {} pages'.format(len(elements[cond])), prefix='...' )
 
             elements.loc[cond, 'body'] = elements[cond].apply( _set_body, axis='columns' )
 

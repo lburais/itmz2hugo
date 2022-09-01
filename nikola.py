@@ -45,89 +45,108 @@ import pandas as pd
 
 from mytools import *
 
+MAPPING = {
+    'title': None,
+    'slug': 'slug',
+    'date': 'created',
+    'tags': None,
+    'status': 'published',
+    'has_math': None,
+    'category': None,
+    'guid': None,
+    'link': None,
+    'description': None,
+    'type': None,
+    'author': 'authors',
+    'enclosure': None,
+    'data': None,
+    'filters': None,
+    'hidetitle': None,
+    'hyphenate': None,
+    'nocomments': None,
+    'pretty_url': None,
+    'previewimage': None,
+    'template': None,
+    'updated': 'modified',
+    'url_type': None,
+}
+
 # ###################################################################################################################################################
 # WRITE
 # ###################################################################################################################################################
 
 def write( directory, elements=empty_elements() ):
 
-    _elements = element.copy()
-    _elements['nikola'] = nan
+    elements['nikola'] = nan
 
-    _folder_site = os.path.join(directory, 'nikola')
-
-    _folder_images = os.path.join(_folder_site, 'images')
-    _folder_objects = os.path.join(_folder_site, 'objects')
+    folder_site = os.path.join(directory, 'nikola')
 
     def _write_element( element ):
+        nonlocal folder_site
 
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # header
-        # -------------------------------------------------------------------------------------------------------------------------------------------
+        try:
 
-        text = '<head>\n'
+            # -------------------------------------------------------------------------------------------------------------------------------------------
+            # header
+            # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        if 'title' in element: text += '\t<title>{}</title>\n'.format(element['title'])
+            text = '<head>\n'
 
-        for key in element:
-            if key in ['id']:
-                text += '\t<meta name="{}" content="{}" />\n'.format(key, 'value')
+            if 'title' in element: text += '\t<title>{}</title>\n'.format(element['title'])
 
-        if 'tags' in element: text += '\t<meta name="{}" content="{}" />\n'.format(key, ', '.join(value))
+            # metadata
+            for key, val in MAPPING.items():
+                if val:
+                    if val in elements: text += '\t<meta name="{}" content="{}" />\n'.format(key, element[val])
+                    else: text += '\t<meta name="{}" content="{}" />\n'.format(key, val)
 
-        text += '</head>\n'
+            text += '</head>\n'
 
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # body
-        # -------------------------------------------------------------------------------------------------------------------------------------------
+            # -------------------------------------------------------------------------------------------------------------------------------------------
+            # body
+            # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        soup = BeautifulSoup(element['body'] if element['body'] else '<body></body>', features="html.parser")
+            soup = BeautifulSoup(element['body'] if element['body'] else '<body></body>', features="html.parser")
 
-        # add child posts
-        # if element['what'] in ['notebook', 'section', 'group']: 
-        #     if 'slug' in element:
-        #         tag = soup.new_tag('div')
-        #         tag.string = "{{% post-list tags=" + "{}".format(element['slug']) + " %}}{{% /post-list %}}"
-        #         soup.body.append(tag)
+            text += str( soup )
 
-        # add struture
-        # tag = soup.new_tag('code')
-        # tmp = dict(element[ELEMENT_COLUMNS])
-        # if 'body' in tmp: del tmp['body']
-        # tag.string = pprint.pformat(tmp)
-        # del tmp
-        # soup.body.append(tag)
+            # -------------------------------------------------------------------------------------------------------------------------------------------
+            # write html
+            # -------------------------------------------------------------------------------------------------------------------------------------------
 
-        # done
-        text += str( soup )
+            element['nikola'] = os.path.join( folder_site, element['type']+'s', element['slug'] + '.html' )
+            out_dir = os.path.dirname(element['nikola'])
 
-        # -------------------------------------------------------------------------------------------------------------------------------------------
-        # write html
-        # -------------------------------------------------------------------------------------------------------------------------------------------
+            myprint('> ' + element['nikola'])
 
-        elements['nikola'] = os.path.join( folder_site, 'posts', element['slug'] + '.html' )
-        out_dir = os.path.dirname(elements['nikola'])
+            if not os.path.isdir(out_dir):
+                os.makedirs(out_dir)
 
-        print('> ' + elements['nikola'])
+            with open(element['nikola'], 'w', encoding='utf-8') as fs:
+                fs.write(text) 
 
-        if not os.path.isdir(out_dir):
-            os.makedirs(out_dir)
+        except:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            myprint("write error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...') 
 
-        with open(elements['nikola'], 'w', encoding='utf-8') as fs:
-            fs.write(text) 
+        return element
 
     myprint( '', line=True, title='NIKOLA')
 
     try:
 
-        _elements = _elements.apply(_write_element, axis='columns')
+        cond = elements['publish']
+        cond &= ~elements['body'].isna()
+        myprint( 'Processing {} elements to Nikola'.format(len(elements[cond])))
+        elements[cond] = elements[cond].apply(_write_element, axis='columns')
 
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        myprint("Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...') 
+        myprint("Nikola went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...') 
 
-    return _elements   
+    return elements   
 
 # ###################################################################################################################################################
 # CLEAR

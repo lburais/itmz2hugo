@@ -237,15 +237,17 @@ if __name__ == "__main__":
 
             token = get_token(microsoft_config.SCOPE)
 
+            # http://localhost:5000/parse?what=notebooks&url=.../onenote/notebooks/0-34CFFB16AE39C6B3!4390&source=onenote
+            # http://localhost:5000/parse?what=content&url=None&source=onenote
+            # http://localhost:5000/parse?what=resources&url=None&source=onenote
             # source=onenote
             # ALL NOTEBOOKS    what=notebooks
             # ALL CONTENTS     what=content
             # ALL RESOURCES    what=resources
             # ONE NOTEBOOK     what=OneNote notebook url=onenote_self
             # REFRESH          what=refresh
-            # http://localhost:5000/parse?what=notebooks&url=https://graph.microsoft.com/v1.0/users/laurent@burais.fr/onenote/notebooks/0-34CFFB16AE39C6B3!4390&source=onenote
-            # http://localhost:5000/parse?what=content&url=None&source=onenote
-            # http://localhost:5000/parse?what=resources&url=None&source=onenote
+            # CLEAR            what=clear - remove unused resources - not yet implemented
+            # CLEAN            what=clean
 
             onenote_elements = onenote.read( token = token['access_token'],
                                              what = what,
@@ -272,70 +274,70 @@ if __name__ == "__main__":
         return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
                                                          'elements': elements.to_dict('records') })
 
-    # READ 
+    # # READ 
 
-    def _read( what='all' ):
-        global elements
+    # def _read( what='all' ):
+    #     global elements
 
-        if what in ['all', 'onenote']:
+    #     if what in ['all', 'onenote']:
 
-            if not session.get("user"):
-                return redirect(url_for("login"))
+    #         if not session.get("user"):
+    #             return redirect(url_for("login"))
 
-            token = get_token(microsoft_config.SCOPE)
+    #         token = get_token(microsoft_config.SCOPE)
 
-            onenote_elements = onenote.read( directory = FOLDER_STATIC,
-                                             token = token['access_token'], 
-                                             elements = elements )
+    #         onenote_elements = onenote.read( directory = FOLDER_STATIC,
+    #                                          token = token['access_token'], 
+    #                                          elements = elements )
 
-            elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
+    #         elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
 
-        if what in ['all', 'itmz']:
+    #     if what in ['all', 'itmz']:
 
-            itmz_elements = itmz.read( directory = FOLDER_STATIC,
-                                       source = FOLDER_ITMZ, 
-                                       elements = empty_elements() )
+    #         itmz_elements = itmz.read( directory = FOLDER_STATIC,
+    #                                    source = FOLDER_ITMZ, 
+    #                                    elements = empty_elements() )
 
-            elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
+    #         elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
         
-        if what in ['all', 'notes']:
-            pass
+    #     if what in ['all', 'notes']:
+    #         pass
         
-        save_excel(FOLDER_STATIC, elements)
+    #     save_excel(FOLDER_STATIC, elements)
 
-    @app.route("/all")
-    def all_read():
-        global elements
-        _read( 'all' )
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
+    # @app.route("/all")
+    # def all_read():
+    #     global elements
+    #     _read( 'all' )
+    #     return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+    #                                                      'elements': elements.to_dict('records') })
 
-    # ONENOTE 
+    # # ONENOTE 
     
-    @app.route("/onenote")
-    def onenote_read():
-        global elements
-        _read( 'onenote' )
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
+    # @app.route("/onenote")
+    # def onenote_read():
+    #     global elements
+    #     _read( 'onenote' )
+    #     return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+    #                                                      'elements': elements.to_dict('records') })
 
-    # ITMZ 
+    # # ITMZ 
     
-    @app.route("/itmz")
-    def itmz_read():
-        global elements
-        _read( 'itmz' )
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
+    # @app.route("/itmz")
+    # def itmz_read():
+    #     global elements
+    #     _read( 'itmz' )
+    #     return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+    #                                                      'elements': elements.to_dict('records') })
 
-    # NOTES
+    # # NOTES
     
-    @app.route("/notes")
-    def notes_read():
-        global elements
-        _read( 'notes' )
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
+    # @app.route("/notes")
+    # def notes_read():
+    #     global elements
+    #     _read( 'notes' )
+    #     return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
+    #                                                      'elements': elements.to_dict('records') })
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # NIKOLA
@@ -349,7 +351,7 @@ if __name__ == "__main__":
         elements = nikola.write( directory = FOLDER_SITE,
                                  elements = elements )        
 
-        save_excel(FOLDER_STATIC, elements)
+        # save_excel(FOLDER_STATIC, elements)
 
         return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
                                                          'elements': elements.to_dict('records') })
