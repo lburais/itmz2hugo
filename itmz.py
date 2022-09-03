@@ -81,18 +81,20 @@ from mytools import *
 
 def catalog( source ): 
     
-    itmz_catalog = pd.DataFrame( {'title': [None], 'source': [None], 'what': ['itmz']} )
+    myprint( '', line=True, title='READ ITMZ CATALOG' )
+
+    itmz_catalog = pd.DataFrame( columns=['source', 'title', 'itmz_filename'] )
     if os.path.isdir( source ):
         for top, dirs, filenames in os.walk( source, topdown=True ):
             for file in filenames:
                 if os.path.splitext(file)[1] == '.itmz': 
                     itmz_catalog = pd.concat( [ itmz_catalog,
-                                                pd.DataFrame( { 'title': [os.path.splitext(file)[0]], 
-                                                                'source': [os.path.join(top, file)], 
-                                                                'what': ['itmz'] } )  
+                                                pd.DataFrame( { 'source': ['itmz'], 
+                                                                'title': [os.path.splitext(file)[0]], 
+                                                                'itmz_filename': [os.path.join(top, file)] } )
                                               ], ignore_index= True )
 
-    itmz_catalog = pd.concat( [ pd.DataFrame( {'title': ['ALL'], 'source': [None], 'what': ['itmz']} ),
+    itmz_catalog = pd.concat( [ pd.DataFrame( {'source': ['itmz'], 'title': ['All MindMaps'], 'itmz_filename': [None]} ),
                                 itmz_catalog
                               ], ignore_index=True)
 
@@ -199,8 +201,8 @@ def read( directory, source, elements=empty_elements() ):
                     # load file
                     if not os.path.isfile(att_resource['filename']) or (date_file < date_page):
 
-                        if not os.path.isfile(att_resource['filename']): myprint( 'missing file', prefix='...' )
-                        elif (date_file < date_page): myprint( 'outdated file', prefix='...' )
+                        if not os.path.isfile(att_resource['filename']): myprint( 'missing file' )
+                        elif (date_file < date_page): myprint( 'outdated file' )
 
                         out_dir = os.path.dirname(att_resource['filename'])
 
@@ -218,13 +220,13 @@ def read( directory, source, elements=empty_elements() ):
                         except:
                             exc_type, exc_obj, exc_tb = sys.exc_info()
                             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                            myprint("Something went wrong [{} - {}]".format(exc_type, exc_obj), prefix='...')
+                            myprint("Something went wrong [{} - {}]".format(exc_type, exc_obj))
 
                     else:
                         att_resource['processed'] = True
 
                     if os.path.isfile(att_resource['filename']):
-                        myprint( '{}: {} bytes'.format( att_resource['filename'], os.path.getsize(att_resource['filename']) ), prefix='...' )
+                        myprint( '{}: {} bytes'.format( att_resource['filename'], os.path.getsize(att_resource['filename']) ) )
 
                 # -----------------------------------------------------------------------------------------------------------------------------------
                 # set links
@@ -448,7 +450,7 @@ def read( directory, source, elements=empty_elements() ):
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        myprint("Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+        myprint("Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname))
 
         return empty_elements()
 

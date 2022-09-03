@@ -27,6 +27,7 @@
 
 import argparse
 import os
+import sys
 import shutil
 
 import microsoft_config
@@ -34,6 +35,7 @@ import microsoft_config
 import onenote
 import itmz
 import nikola
+import pelican
 
 from mytools import *
 
@@ -48,15 +50,11 @@ import platform
 
 import glob
 
-# #################################################################################################################################
-# MAIN
-# #################################################################################################################################
-
 if __name__ == "__main__":
 
-    # =============================================================================================================================
+    # ##############################################################################################################################################
     # arguments
-    # =============================================================================================================================
+    # ##############################################################################################################################################
 
     parser = argparse.ArgumentParser(
         description="Transform OneNote or iThoughts source into files for static site generators.",
@@ -111,9 +109,9 @@ if __name__ == "__main__":
     if args.html: args.generate='html'
     if args.md: args.generate='md'
 
-    # =============================================================================================================================
+    # ##############################################################################################################################################
     # output folder
-    # =============================================================================================================================
+    # ##############################################################################################################################################
 
     args.output = os.path.join( args.output, args.stack )
 
@@ -131,9 +129,9 @@ if __name__ == "__main__":
             error = 'Unable to create the output folder: ' + args.output
             exit(error)
 
-    # =============================================================================================================================
+    # ##############################################################################################################################################
     # Variable
-    # =============================================================================================================================
+    # ##############################################################################################################################################
 
     FOLDER = os.path.dirname(__file__)
     FOLDER_STATIC = os.path.join( FOLDER, 'static')
@@ -142,10 +140,11 @@ if __name__ == "__main__":
     FOLDER_ITMZ = "/Volumes/library/MindMap"
 
     elements = empty_elements()
+    catalog = []
 
-    # =============================================================================================================================
+    # ##############################################################################################################################################
     # Flask
-    # =============================================================================================================================
+    # ##############################################################################################################################################
 
     app = Flask(__name__)
 
@@ -153,60 +152,174 @@ if __name__ == "__main__":
     Session(app)
     app.debug = True
 
-    # -----------------------------------------------------------------------------------------------------------------------------
-    # CATALOG
-    # -----------------------------------------------------------------------------------------------------------------------------
+    # ##############################################################################################################################################
+    # ACTIONS 
+    # ##############################################################################################################################################
 
-    def _catalog():
-        if not session.get("user"):
-            return redirect(url_for("login"))
-
-        token = get_token(microsoft_config.SCOPE)
-
-        return pd.concat( [ onenote.catalog( token = token['access_token'] ), 
-                            itmz.catalog(FOLDER_ITMZ) 
-                          ], ignore_index=True )
-
-    # -----------------------------------------------------------------------------------------------------------------------------
-    # ROOT
-    # -----------------------------------------------------------------------------------------------------------------------------
-
-    # home button
     @app.route("/")
-    def index():
-        global elements
-
-        elements = empty_elements()
-
-        return render_template('index.html', result= get_catalog(FOLDER_STATIC) )
-
-    # -----------------------------------------------------------------------------------------------------------------------------
-    # EXCEL FILE 
-    # -----------------------------------------------------------------------------------------------------------------------------
-    
-    # filename button
+    @app.route("/index")
+    @app.route("/empty")
+    @app.route("/refresh")
+    @app.route("/excel")
+    @app.route("/remove")
+    @app.route("/pelican")
+    @app.route("/nikola")
     @app.route("/getfile")
-    def getfile():
-        global elements
-
-        filename = request.args.get('filename')
-
-        elements = load_excel( filename )
-
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
-
-    # -----------------------------------------------------------------------------------------------------------------------------
-    # ELEMENTS
-    # -----------------------------------------------------------------------------------------------------------------------------
-
-    # refresh button
     @app.route("/elements")
-    def display_elements():
-        global elements
+    @app.route("/parse")
+    def actions():
+        global elements, catalog
 
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
+        try:
+            action = request.base_url.split('/')[-1]
+
+            if len(action) > 0: myprint( '', line=True, title='ACTION: {}'.format(action.upper()) )
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            # CLEAR ELEMENTS DATAFRAME
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            if action in ['empty']:
+                elements = empty_elements()
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            # OPEN LAST EXCEL FILE
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            elif action in ['excel']:
+                cat = pd.DataFrame( catalog )
+                file = cat[cat['source'].isin(['directory'])]['filename'].to_list()[-1]
+                if platform.system() == 'Darwin':
+                    myprint( 'Opening {}'.format(file))
+                    os.system('open "' + file + '"')
+                else:
+                    myprint( 'Cannot open {} on {}'.format( file, platform.system() ) )
+                del cat
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            # REMOVE ORPHAN FILES
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            elif action in ['remove']:
+                nikola.clear( directory=FOLDER_SITE )
+                pelican.clear( directory=FOLDER_SITE )
+                itmz.clear( directory=FOLDER_STATIC, elements=elements )
+                onenote.clear( directory=FOLDER_STATIC, elements=elements, all=False )
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            # WRITE TO NIKOLA
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            elif action in ['nikola']:
+                elements = nikola.write( directory = FOLDER_SITE,
+                                         elements = elements )        
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            # WRITE TO PELICAN
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            elif action in ['pelican']:
+                elements = pelican.write( directory = FOLDER_SITE,
+                                          elements = elements )        
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            # LOAD EXCEL FILE
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            elif action in ['getfile']:
+                filename = request.args.get('filename')
+                if filename:
+                    if os.path.isfile( filename ):
+                        myprint( 'Loading {} file'.format(filename))
+
+                        try:
+                            elements = pd.read_excel( filename, sheet_name='Elements', engine='openpyxl')
+                            myprint( "{} rows loaded.".format(len(elements)) ) 
+                        except:
+                            myprint( "Something went wrong with file {}.".format(filename) ) 
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            # PARSE ELEMENTS
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            elif action in ['parse']:
+                what = request.args.get('what')
+                source = request.args.get('source')
+                url = request.args.get('url')
+
+                if source in ['all', 'onenote']:
+
+                    if not session.get("user"):
+                        return redirect(url_for("login"))
+
+                    token = get_token(microsoft_config.SCOPE)
+
+                    # http://localhost:5000/parse?what=notebooks&url=.../onenote/notebooks/0-34CFFB16AE39C6B3!4390&source=onenote
+                    # http://localhost:5000/parse?what=content&url=None&source=onenote
+                    # http://localhost:5000/parse?what=resources&url=None&source=onenote
+                    # source=onenote
+                    # ALL NOTEBOOKS    what=notebooks
+                    # ALL CONTENTS     what=content
+                    # ALL RESOURCES    what=resources
+                    # ONE NOTEBOOK     what=OneNote notebook url=onenote_self
+                    # REFRESH          what=refresh
+                    # CLEAR            what=clear - remove unused resources - not yet implemented
+                    # CLEAN            what=clean
+
+                    onenote_elements = onenote.read( token = token['access_token'],
+                                                     what = what,
+                                                     url = url if url not in ['', 'nan', 'None'] else None,
+                                                     directory = FOLDER_STATIC,
+                                                     elements = elements if what in ['content', 'resources', 'refresh'] else empty_elements()
+                                                )
+
+                    elements = pd.concat( [ elements[~elements['source'].isin(['onenote'])], onenote_elements ], ignore_index = True )
+
+                if source in ['all', 'itmz']:
+
+                    itmz_elements = itmz.read( directory = FOLDER_STATIC,
+                                            source = FOLDER_ITMZ, 
+                                            elements = empty_elements() )
+
+                    elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
+                
+                if source in ['all', 'notes']:
+                    pass
+                
+                save_excel(FOLDER_STATIC, elements)
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+            # LOAD CATALOG
+            # ---------------------------------------------------------------------------------------------------------------------------------------
+
+            # directory
+            catalog = [ { 'source': 'directory', 'filename': 'FORCE', 'name': 'FORCE' } ]
+            for d in glob.glob(glob.escape(FOLDER_STATIC) + "/jamstack*.xlsx"):
+                display =  os.path.basename(d).replace('jamstack_', '').replace('.xlsx', '').replace('_', ' ').upper()
+                if os.path.getsize(d) > 0:
+                    catalog += [ { 'source': 'directory', 'filename': d, 'name': display } ]
+            if len(catalog) > 1: catalog.insert(1, { 'source': 'directory', 'filename': catalog[-1]['filename'], 'name': 'LAST' } )
+
+            catalog = pd.DataFrame( catalog )
+
+            # onenote
+            if not session.get("user"):
+                return redirect(url_for("login"))
+
+            token = get_token(microsoft_config.SCOPE)
+
+            catalog = pd.concat( [ catalog, onenote.catalog( token = token['access_token'] ) ], ignore_index=True )
+
+            # itmz
+            catalog = pd.concat( [ catalog, itmz.catalog(FOLDER_ITMZ) ], ignore_index=True )
+
+            # convert
+            catalog = catalog.to_dict('records')
+        
+        except:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            myprint("action error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname))
+
+        return render_template('index.html', result={ 'catalog': catalog,
+                                                      'elements': elements.to_dict('records') })
+
+    # ##############################################################################################################################################
+    # ELEMENT
+    # ##############################################################################################################################################
 
     # display button
     @app.route("/element")
@@ -218,188 +331,9 @@ if __name__ == "__main__":
         else:
             return '[{}]: {} ???\n{}'.format(element_id, len(tmp), tmp) + '</body></html>'
 
-    # -----------------------------------------------------------------------------------------------------------------------------
-    # PARSE 
-    # -----------------------------------------------------------------------------------------------------------------------------
-
-    @app.route("/parse")
-    def parse():
-        global elements
-
-        what = request.args.get('what')
-        source = request.args.get('source')
-        url = request.args.get('url')
-
-        if source in ['all', 'onenote']:
-
-            if not session.get("user"):
-                return redirect(url_for("login"))
-
-            token = get_token(microsoft_config.SCOPE)
-
-            # http://localhost:5000/parse?what=notebooks&url=.../onenote/notebooks/0-34CFFB16AE39C6B3!4390&source=onenote
-            # http://localhost:5000/parse?what=content&url=None&source=onenote
-            # http://localhost:5000/parse?what=resources&url=None&source=onenote
-            # source=onenote
-            # ALL NOTEBOOKS    what=notebooks
-            # ALL CONTENTS     what=content
-            # ALL RESOURCES    what=resources
-            # ONE NOTEBOOK     what=OneNote notebook url=onenote_self
-            # REFRESH          what=refresh
-            # CLEAR            what=clear - remove unused resources - not yet implemented
-            # CLEAN            what=clean
-
-            onenote_elements = onenote.read( token = token['access_token'],
-                                             what = what,
-                                             url = url if url not in ['', 'nan', 'None'] else None,
-                                             directory = FOLDER_STATIC,
-                                             elements = elements if what in ['content', 'resources', 'refresh'] else empty_elements()
-                                           )
-
-            elements = pd.concat( [ elements[~elements['source'].isin(['onenote'])], onenote_elements ], ignore_index = True )
-
-        if source in ['all', 'itmz']:
-
-            itmz_elements = itmz.read( directory = FOLDER_STATIC,
-                                       source = FOLDER_ITMZ, 
-                                       elements = empty_elements() )
-
-            elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
-        
-        if source in ['all', 'notes']:
-            pass
-        
-        save_excel(FOLDER_STATIC, elements)
-
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
-
-    # # READ 
-
-    # def _read( what='all' ):
-    #     global elements
-
-    #     if what in ['all', 'onenote']:
-
-    #         if not session.get("user"):
-    #             return redirect(url_for("login"))
-
-    #         token = get_token(microsoft_config.SCOPE)
-
-    #         onenote_elements = onenote.read( directory = FOLDER_STATIC,
-    #                                          token = token['access_token'], 
-    #                                          elements = elements )
-
-    #         elements = pd.concat( [ elements[~elements['source'].isin(['onenote',nan])], onenote_elements ], ignore_index = True )
-
-    #     if what in ['all', 'itmz']:
-
-    #         itmz_elements = itmz.read( directory = FOLDER_STATIC,
-    #                                    source = FOLDER_ITMZ, 
-    #                                    elements = empty_elements() )
-
-    #         elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
-        
-    #     if what in ['all', 'notes']:
-    #         pass
-        
-    #     save_excel(FOLDER_STATIC, elements)
-
-    # @app.route("/all")
-    # def all_read():
-    #     global elements
-    #     _read( 'all' )
-    #     return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-    #                                                      'elements': elements.to_dict('records') })
-
-    # # ONENOTE 
-    
-    # @app.route("/onenote")
-    # def onenote_read():
-    #     global elements
-    #     _read( 'onenote' )
-    #     return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-    #                                                      'elements': elements.to_dict('records') })
-
-    # # ITMZ 
-    
-    # @app.route("/itmz")
-    # def itmz_read():
-    #     global elements
-    #     _read( 'itmz' )
-    #     return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-    #                                                      'elements': elements.to_dict('records') })
-
-    # # NOTES
-    
-    # @app.route("/notes")
-    # def notes_read():
-    #     global elements
-    #     _read( 'notes' )
-    #     return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-    #                                                      'elements': elements.to_dict('records') })
-
-    # -----------------------------------------------------------------------------------------------------------------------------
-    # NIKOLA
-    # -----------------------------------------------------------------------------------------------------------------------------
-    
-    # write to nikola
-    @app.route("/nikola")
-    def nikola_write():
-        global elements
-
-        elements = nikola.write( directory = FOLDER_SITE,
-                                 elements = elements )        
-
-        # save_excel(FOLDER_STATIC, elements)
-
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
-
-    # -----------------------------------------------------------------------------------------------------------------------------
-    # ACTIONS 
-    # -----------------------------------------------------------------------------------------------------------------------------
-    
-    @app.route("/clean")
-    def clean():
-        global elements
-
-        elements = empty_elements()
-
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
-
-    @app.route("/refresh")
-    def refresh():
-        global elements
-
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
-
-    @app.route("/excel")
-    def excel():
-        global elements
-
-        catalog = get_catalog(FOLDER_STATIC)
-        os.system('open "' + catalog[-1]['filename'] + '"')
-
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
-
-    @app.route("/clear")
-    def clear():
-        global elements
-
-        myprint( '', line=True, title='CLEAR FILES')
-
-        nikola.clear( directory=FOLDER_SITE )
-        itmz.clear( directory=FOLDER_STATIC, elements=elements )
-        onenote.clear( directory=FOLDER_STATIC, elements=elements, all=False )
-
-        return render_template('elements.html', result={ 'catalog': _catalog().to_dict('records'),
-                                                         'elements': elements.to_dict('records') })
-
+    # ##############################################################################################################################################
     # TOKEN CACHING AND AUTH FUNCTIONS
+    # ##############################################################################################################################################
 
     # Its absolute URL must match your app's redirect_uri set in AAD
     @app.route("/getAToken")
@@ -416,7 +350,8 @@ if __name__ == "__main__":
                 result["error"], result.get("error_description"))
         session["user"] = result.get("id_token_claims")
         _save_cache(cache)
-        return redirect(url_for("index"))
+#        return redirect(url_for("index.html"))
+        return redirect(url_for("actions"))
 
     def _load_cache():
         cache = msal.SerializableTokenCache()
@@ -448,7 +383,9 @@ if __name__ == "__main__":
             return redirect(url_for("login"))
         return token
 
+    # ##############################################################################################################################################
     # LOGIN/LOGOUT FUNCTIONS
+    # ##############################################################################################################################################
 
     @app.route("/login")
     def login():
@@ -467,7 +404,9 @@ if __name__ == "__main__":
             "https://login.microsoftonline.com/common/oauth2/v2.0/logout"
             "?post_logout_redirect_uri=" + url_for("login", _external=True))
 
+    # ##############################################################################################################################################
     # SERVE
+    # ##############################################################################################################################################
 
     if platform.system() == 'Darwin':
         if args.https:

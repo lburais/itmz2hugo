@@ -1,33 +1,32 @@
 # ###################################################################################################################################################
-# Filename:     nikola.py
+# Filename:     pelican.py
 # 
 # - Author:     [Laurent Burais](mailto:lburais@cisco.com)
 # - Release:
 # - Date:
 #
 # ###################################################################################################################################################
-# Nikola structure
+# Pelican structure
 # -----------------
 #   content
 #   ├── pages
-#   |   ├── [filename1].html
-#   |   |       external --> url
-#   |   |       internal in --> {filename}#[uuid]
-#   |   |       internal out --> {filename}[filename].html#[ref]
-#   |   └── [filename2].html --> {filename}[filename2].html
-#   ├── posts
-#   |   ├── [filename3].html
+#   |   ├── [page1].html
 #   |   |       external --> url
 #   |   |       internal in --> {filename}#[uuid]
 #   |   |       internal out --> {filename}[filenamex].html#[ref]
-#   |   └── [filename4].html --> {filename}[filename2].html
-#   ├── files
-#   |   └── objects
-#   |       └── [tag 1]
-#   |           ├── [object1] --> /objects/[tag1]/[object1]
-#   |           └── [tag 2]
-#   |               └── [object2] --> /objects/[tag1]/[tag2]/[object2]
-#   └── conf.py
+#   |   └── [page2].html --> {filename}[filename2].html
+#   ├── [top]
+#   |   ├── [page1]
+#   |   |   └── [post1.1] --> {static}/attachments/[filename1]/[attachment1]
+#   |   └── [page2]
+#   |       └── [post2.1] --> {static}/attachments/[filename2]/[attachment2]
+
+#   ├── attachments
+#   |   ├── [filename1]
+#   |   |   └── [attachment1] --> {static}/attachments/[filename1]/[attachment1]
+#   |   └── [filename2]
+#   |       └── [attachment2] --> {static}/attachments/[filename2]/[attachment2]
+#   └── pelican.conf.py
 #           PATH = 'content'
 #           PAGE_PATHS = ['pages']
 #           ARTICLE_PATHS = ['articles']
@@ -77,9 +76,9 @@ MAPPING = {
 
 def write( directory, elements=empty_elements() ):
 
-    elements['nikola'] = nan
+    elements['pelican'] = nan
 
-    folder_site = os.path.join(directory, 'nikola')
+    folder_site = os.path.join(directory, 'pelican')
 
     def _write_element( element ):
         nonlocal folder_site
@@ -114,10 +113,10 @@ def write( directory, elements=empty_elements() ):
             # write html
             # -------------------------------------------------------------------------------------------------------------------------------------------
 
-            element['nikola'] = os.path.join( folder_site, element['type']+'s', element['slug'] + '.html' )
-            out_dir = os.path.dirname(element['nikola'])
+            element['pelican'] = os.path.join( folder_site, element['type']+'s', element['slug'] + '.html' )
+            out_dir = os.path.dirname(element['pelican'])
 
-            myprint('> ' + element['nikola'])
+            myprint('> ' + element['pelican'])
 
             if not os.path.isdir(out_dir):
                 os.makedirs(out_dir)
@@ -132,19 +131,19 @@ def write( directory, elements=empty_elements() ):
 
         return element
 
-    myprint( '', line=True, title='NIKOLA')
+    myprint( '', line=True, title='PELICAN')
 
     try:
 
         cond = elements['publish']
         cond &= ~elements['body'].isna()
-        myprint( 'Processing {} elements to Nikola'.format(len(elements[cond])))
+        myprint( 'Processing {} elements to Pelican'.format(len(elements[cond])))
         #elements[cond] = elements[cond].apply(_write_element, axis='columns')
 
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        myprint("Nikola went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...') 
+        myprint("Pelican went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...') 
 
     return elements   
 
@@ -154,9 +153,9 @@ def write( directory, elements=empty_elements() ):
 
 def clear( directory ): 
 
-    myprint( '', line=True, title='CLEAR NIKOLA FILES')
+    myprint( '', line=True, title='CLEAR PELICAN FILES')
 
-    _directory = os.path.join( directory, 'nikola' )
+    _directory = os.path.join( directory, 'pelican' )
 
     if os.path.isdir(_directory):
         myprint( 'Removing {}...'.format(_directory), prefix='>' )

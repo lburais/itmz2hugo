@@ -97,40 +97,6 @@ def myprint( content, line=False, prefix='', title='', na=True ):
             print('    {}{}{}'.format(prefix, '' if prefix == '' else ' ', content))
 
 # ===============================================================================================================================================
-# get_catalog
-# ===============================================================================================================================================
-
-def get_catalog( directory ):
-    catalog = [ { 'filename': 'FORCE', 'name': 'FORCE' } ]
-    for d in glob.glob(glob.escape(directory) + "/jamstack*.xlsx"):
-        display =  os.path.basename(d).replace('jamstack_', '').replace('.xlsx', '').replace('_', ' ').upper()
-        if os.path.getsize(d) > 0:
-            catalog += [ { 'filename': d, 'name': display } ]
-    if len(catalog) > 1: catalog.insert(1, { 'filename': catalog[-1]['filename'], 'name': 'LAST' } )
-
-    return catalog
-
-# ===============================================================================================================================================
-# load_excel
-# ===============================================================================================================================================
-
-def load_excel( filename ):
-
-    if filename:
-        if os.path.isfile( filename ):
-            myprint( '', line=True, title='LOAD EXCEL FILE')
-            myprint( 'Loading {} file'.format(filename))
-
-            try:
-                df = pd.read_excel( filename, sheet_name='Elements', engine='openpyxl')
-                myprint( "{} rows loaded.".format(len(df)), prefix="..." ) 
-                return df
-            except:
-                myprint( "Something went wrong with file {}.".format(filename), prefix="..." ) 
-                  
-    return empty_elements()         
-
-# ===============================================================================================================================================
 # save_excel
 # ===============================================================================================================================================
 
@@ -143,7 +109,7 @@ def save_excel( directory, elements, type=None ):
         if not timestamp: timestamp = dt.now().strftime("%d_%b_%Y_%H_%M_%S")
 
         for out_file in glob.glob(os.path.join( directory, 'jamstack_*_{}.xlsx'.format( timestamp ))):
-            myprint( "removing {}".format(out_file), prefix='...' )
+            myprint( "removing {}".format(out_file) )
             os.remove( out_file )
 
         name = 'jamstack{}_{}.xlsx'.format( ('_' + type) if type else '', timestamp)

@@ -170,7 +170,7 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                                                                   'onenote_parentPage.id': [tmp_parent], 
                                                                   'onenote_createdDateTime': [tmp_created], 
                                                                   'onenote_lastModifiedDateTime': [tmp_modified], 
-                                                                  'onenote_content': [onenote_response.text.replace('_x000D_','')],
+                                                                  'onenote_content': [onenote_response.text],
                                                                   'onenote_resources': [''],
                                                                 } )
 
@@ -178,7 +178,7 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                                 onenote_resources = process_resources( onenote_response.text )
 
                                 if len(onenote_resources) > 0:
-                                    myprint( 'adding {} resources'.format(len(onenote_resources)), prefix='...' )
+                                    myprint( 'adding {} resources'.format(len(onenote_resources)) )
                                     onenote_resources['onenote_what'] = 'resources'
                                     onenote_resources['onenote_parentContent.id'] = 'content' + identifier
                                     onenote_resources['onenote_createdDateTime'] = tmp_created
@@ -206,20 +206,20 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
 
                                         myprint( '{}: {} bytes'.format( row['onenote_file_name'], 
                                                                         os.path.getsize(row['onenote_file_name']) 
-                                                                      ), prefix='...' )
+                                                                      ) )
 
                                         row['onenote_file_size'] = os.path.getsize(row['onenote_file_name'])
                                         row['onenote_file_date'] = dt.fromtimestamp(os.path.getmtime(row['onenote_file_name']))
                                     except:
                                         exc_type, exc_obj, exc_tb = sys.exc_info()
-                                        myprint( 'error [{} - {}] at line {}'.format(exc_type, exc_obj, exc_tb.tb_lineno), prefix='###')
+                                        myprint( 'error [{} - {}] at line {}'.format(exc_type, exc_obj, exc_tb.tb_lineno))
                                     return row
 
                                 # retrieve element by url and save file
                                 cond = read_elements['onenote_what'].isin(['resources'])
                                 cond &= read_elements['onenote_resourceUrl'] == url
 
-                                myprint( 'writing {} files'.format(len(read_elements[cond])), prefix='...' )
+                                myprint( 'writing {} files'.format(len(read_elements[cond])) )
                                 if len(read_elements[cond]) > 0:
                                     read_elements[cond] = read_elements[cond].apply( _load_resource, axis='columns' )
 
@@ -252,12 +252,12 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                     except:
                         exc_type, exc_obj, exc_tb = sys.exc_info()
                         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                        myprint("Get error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='###')
+                        myprint("Get error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname))
                         break
 
                 get_elements.drop_duplicates( subset=['onenote_id'], inplace=True )
 
-                myprint( '{} {} loaded'.format(len(get_elements), what), prefix='...' )
+                myprint( '{} {} loaded'.format(len(get_elements), what) )
 
                 if len(get_elements) > 0:
                     # concat 
@@ -267,7 +267,7 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
             except:
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                myprint("Url error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='###')
+                myprint("Url error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname))
                 if not EXCEPT_HANDLING: raise
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
@@ -399,7 +399,7 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                 if url: cond &= read_elements['top'] == url
                 cond &= ~read_elements['onenote_contentUrl'].isna()
 
-                myprint( 'Processing {} elements...'.format(len(read_elements[cond])), prefix='...')
+                myprint( 'Processing {} elements...'.format(len(read_elements[cond])))
                 read_elements[cond]['onenote_contentUrl'].apply( lambda x: process_url(x) )
 
                 # for resources update
@@ -481,13 +481,13 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
                 cond &= (~read_elements['onenote_file_ok'])
                 
                 if len(read_elements[cond]) > 0:
-                    myprint( 'Loading {} resources...'.format(len(read_elements[cond])), prefix='...' )
+                    myprint( 'Loading {} resources...'.format(len(read_elements[cond])) )
                     read_elements[cond]['onenote_resourceUrl'].apply( lambda x: process_url(x) )
                 else:
                     cond = read_elements['what'].isin(['resources'])
                     if url: cond &= read_elements['top'] == url
                     cond &= (~read_elements['onenote_file_name'].isna())
-                    myprint( 'All {} files ok, no resource to be loaded'.format(len(read_elements[cond])), prefix='...' )
+                    myprint( 'All {} files ok, no resource to be loaded'.format(len(read_elements[cond])) )
 
         # -------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -509,7 +509,7 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        myprint("Read error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='###')
+        myprint("Read error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname))
         if not EXCEPT_HANDLING: raise
 
     return read_elements
@@ -520,7 +520,7 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
 
 def normalize( elements ): 
     try:
-        myprint( 'Normalizing {} elements'.format(len(elements)), prefix='...' )
+        myprint( 'Normalizing {} elements'.format(len(elements)) )
 
         if len(elements) > 0:
 
@@ -558,6 +558,12 @@ def normalize( elements ):
 
             # slug
             elements['slug'] = elements['id'].apply( lambda x: slugify(x) )
+
+            # body
+            if 'onenote_contents' in elements:
+                cond = ~elements['onenote_content'].isna()
+                elements.loc[cond, 'onenote_content'] = elements[cond]['onenote_content'].str.replace('_x000D_','')
+
 
             # parent
             elements['onenote_parent_context'] = nan
@@ -631,7 +637,7 @@ def normalize( elements ):
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        myprint("Normalize error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+        myprint("Normalize error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname))
         raise
 
     return elements
@@ -699,7 +705,7 @@ def reorganize( elements ):
             except:
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                myprint("readdress error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+                myprint("readdress error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname))
 
 
             return body
@@ -708,7 +714,7 @@ def reorganize( elements ):
             cond = ~elements['onenote_content'].isna()
             cond &= len(elements['onenote_resources']) > 0
             
-            myprint( 'Readdressing {} content and resources'.format(len(elements[cond])), prefix='...' )
+            myprint( 'Readdressing {} content and resources'.format(len(elements[cond])) )
 
             elements.loc[cond, 'body'] = elements[cond].apply( _readdress, axis='columns' )
 
@@ -724,7 +730,7 @@ def reorganize( elements ):
         if 'onenote_what' in elements and 'body' in elements :
             cond = elements['onenote_what'].isin( ['pages'] )
             
-            myprint( 'Setting body for {} pages'.format(len(elements[cond])), prefix='...' )
+            myprint( 'Setting body for {} pages'.format(len(elements[cond])) )
 
             elements.loc[cond, 'body'] = elements[cond].apply( _set_body, axis='columns' )
 
@@ -760,7 +766,7 @@ def reorganize( elements ):
         _elements[cond] = _elements[cond].apply(_find_page, axis='columns')
 
         cond = (~_elements['tmp_found'].isna())
-        myprint( 'merged {} contents'. format(len(_elements[cond])), prefix="...")
+        myprint( 'merged {} contents'. format(len(_elements[cond])))
 
         _elements['onenote_merged'] = False
         pages = list(dict.fromkeys([x for xs in _elements[cond]['tmp_found'].drop_duplicates().to_list() for x in xs]))
@@ -772,7 +778,7 @@ def reorganize( elements ):
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        myprint("Reorganize error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname), prefix='...')
+        myprint("Reorganize error [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname))
 
     return elements
 
@@ -829,5 +835,5 @@ def clear( directory, elements=empty_elements(), all=False ):
                         myprint('removing {} directory'.format(os.path.join(root, name)), prefix='>')
                         #shutil.rmtree(os.path.join(root, name))
 
-            myprint('removed {} out of {} files'.format(removed, count), prefix='...')
+            myprint('removed {} out of {} files'.format(removed, count))
 
