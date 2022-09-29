@@ -498,7 +498,7 @@ def read( token, url=None, what='catalog', directory=None, elements=empty_elemen
             if len(read_elements) > 20: myprint( '', line=True, title='FIRST 20 OF {} ONENOTE ELEMENTS'.format(len(read_elements)))
             else: myprint( '', line=True, title='ONENOTE ELEMENTS')
             read_elements['short'] = read_elements['title'].str[:30]
-            display_list =['number', 'id', 'what', 'short', 'parent']
+            display_list =['number', 'id', 'what', 'short', 'parent', 'path']
             for val in reversed(display_list):
                 if val not in read_elements:
                     display_list.remove(val)
@@ -531,8 +531,9 @@ def normalize( elements ):
             elements['what'] = elements['onenote_what'] if 'onenote_what' in elements else nan
 
             # type
-            elements['type'] = 'post' 
-            elements.loc[elements['what'].isin(['pages']), 'type'] = 'page' 
+            elements['type'] = 'unknown' 
+            elements.loc[elements['what'].isin(['notebooks','sections','sectionGroups']), 'type'] = 'page' 
+            elements.loc[elements['what'].isin(['pages']), 'type'] = 'post' 
 
             # id
             elements['id'] = elements['onenote_id'] if 'onenote_id' in elements else nan
@@ -558,6 +559,9 @@ def normalize( elements ):
 
             # slug
             elements['slug'] = elements['id'].apply( lambda x: slugify(x) )
+
+            # osname
+            elements['osname'] = elements['title'].apply( lambda x: slugify(x, True) if x == x else nan )
 
             # body
             if 'onenote_contents' in elements:
@@ -597,22 +601,26 @@ def normalize( elements ):
                 else: return []
             elements['childs'] = elements.apply( _set_childs, axis='columns' ) if len(elements) > 0 else nan
 
-            # number
-            def _set_number( row ):
+            # number and path
+            def _set_number_path( row ):
                 cond = elements['parent'] == row['id']
                 if len(elements[cond]) > 0:
                     elements.loc[cond, 'number'] = [(row['number'] + '.' + str(x).zfill(3)) for x in list(range( 1, len(elements[cond]) +1 ))]
-                    elements[cond].apply(_set_number, axis='columns')
+                    myprint('[{}] - [{}]'.format(elements[cond].iloc[0]['osname'], row['path']))
+                    elements.loc[cond, 'path'] = elements[cond].iloc[0]['osname'] + '!' + row['path']
+                    elements[cond].apply(_set_number_path, axis='columns')
 
             elements['number'] = nan
+            elements['path'] = ''
             if len(elements[~elements['what'].isin(['notebooks'])]) > 0: 
                 if 'onenote_order' in elements:
                     elements.sort_values(by=['onenote_order'], inplace=True)
 
                 cond = elements['what'].isin(['notebooks'])
                 elements.loc[cond, 'number'] = elements[cond]['id'].str.split(pat='!', expand=True)[1]
+                elements.loc[cond, 'path'] = elements[cond]['osname']
                 cond = ~elements['number'].isna()
-                elements[cond].apply(_set_number, axis='columns')
+                elements[cond].apply(_set_number_path, axis='columns')
 
             elements.sort_values(by=['number'], inplace=True)
 
@@ -621,14 +629,10 @@ def normalize( elements ):
                 cond = elements['number'].str.startswith(row['number'], na=False)
                 elements.loc[cond, 'top'] = row['onenote_self']
 
-            elements['top'] = nan
-            if len(elements[~elements['what'].isin(['notebooks'])]) > 0: 
-                cond = elements['what'].isin( ['notebooks'] )
-                elements[cond].apply( _set_top, axis='columns' )
-
             # publish
             elements['publish'] = True
             elements.loc[elements['what'].isin(['content','resources']), 'publish'] = False
+            elements.loc[elements['childs'].isin(['[]]'] & elements['childs'].isna()), 'publish'] = False
 
             # reorganize
             if len(elements[~elements['what'].isin(['notebooks'])]) > 0: 

@@ -1,29 +1,28 @@
-# ###################################################################################################################################################
-# Filename:     jamstack.py
-# 
-# - Author:     [Laurent Burais](mailto:lburais@cisco.com)
-# - Release:    
-# - Date:
-#
-# Configure:
-#   mkdir /Volumes/library
-#   mount_afp -i afp://Pharaoh.local/library /Volumes/library
-#
-#   cd /Volumes/library/Development/jamstack
-#   python3 -m venv venv
-#
-# Run:
-#   cd /Volumes/library/Development/jamstack
-#   source venv/bin/activate
-#   python3 jamstack.py --output site --nikola --html
-#   python3 jamstack.py --output site --nikola --https
-#   python3 jamstack.py
-#
-#
-# Graph Explorer:
-#   https://developer.microsoft.com/fr-fr/graph/graph-explorer
-#
-# ###################################################################################################################################################
+""" ###################################################################################################################################################
+Filename:     jamstack.py
+
+- Author:     [Laurent Burais](mailto:lburais@cisco.com)
+- Release:    
+- Date:
+
+Configure:
+  mkdir /Volumes/library
+  mount_afp -i afp://Pharaoh.local/library /Volumes/library
+  cd /Volumes/library/Development/jamstack
+  python3 -m venv venv
+  pip3 install requests pandas bs4 tabulate xlsxwriter openpyxl  markdown flask flask_session msal pelican
+
+Run:
+  cd /Volumes/library/Development/jamstack
+  source venv/bin/activate
+  python3 jamstack.py --output site --nikola --html
+  python3 jamstack.py --output site --nikola --https
+  python3 jamstack.py
+
+Graph Explorer:
+  https://developer.microsoft.com/fr-fr/graph/graph-explorer
+###################################################################################################################################################
+""" 
 
 import argparse
 import os

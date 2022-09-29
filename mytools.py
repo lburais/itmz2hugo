@@ -52,19 +52,20 @@ def empty_elements():
 # INTERNAL FUNCTIONS
 # #################################################################################################################################
 
-def slugify( value ):
+def slugify( value, isDir = False ):
 
-    # remove invalid chars (replaced by '-')
-    value = re.sub( r'[<>:"/\\|?*^%]', '-', value, flags=re.IGNORECASE )
+    # remove invalid chars (replaced by '-' or space)
+    if isDir: value = re.sub( r'[<>:"/\\|?*^%]', ' ', value, flags=re.IGNORECASE )
+    else: value = re.sub( r'[<>:"/\\|?*^%]', '-', value, flags=re.IGNORECASE )
 
     # remove non-alphabetical/whitespace/'-' chars
-    value = re.sub( r'[^\w\s-]', '', value, flags=re.IGNORECASE )
+    if not isDir: value = re.sub( r'[^\w\s-]', '', value, flags=re.IGNORECASE )
 
     # replace whitespace by '-'
-    value = re.sub( r'[\s]+', '-', value, flags=re.IGNORECASE )
+    if not isDir: value = re.sub( r'[\s]+', '-', value, flags=re.IGNORECASE )
 
     # lower case
-    value = value.lower()
+    if not isDir: value = value.lower()
 
     # reduce multiple whitespace to single whitespace
     value = re.sub( r'[\s]+', ' ', value, flags=re.IGNORECASE)

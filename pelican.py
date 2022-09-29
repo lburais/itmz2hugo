@@ -9,27 +9,37 @@
 # Pelican structure
 # -----------------
 #   content
-#   ├── pages
-#   |   ├── [page1].html
-#   |   |       external --> url
-#   |   |       internal in --> {filename}#[uuid]
-#   |   |       internal out --> {filename}[filenamex].html#[ref]
-#   |   └── [page2].html --> {filename}[filename2].html
-#   ├── [top]
-#   |   ├── [page1]
-#   |   |   └── [post1.1] --> {static}/attachments/[filename1]/[attachment1]
-#   |   └── [page2]
-#   |       └── [post2.1] --> {static}/attachments/[filename2]/[attachment2]
-
+#   ├── [top 1]
+#   |   ├── pages
+#   |   |   ├── [top 1] 
+#   |   |   |   ├── [top 1].html
+#   |   |   |   └── [top 1 attachment 1].[ext]
+#   |   |   ├── [page 1] 
+#   |   |   |   ├── [page 1].html
+#   |   |   |   ├── [page 1 attachment 1].[ext]
+#   |   |   |   └── [page 1.1] 
+#   |   |   |       ├── [page 1.1].html
+#   |   |   |       ├── [page 1.1 attachment 1].[ext] 
+#   |   |   |       └── [page 1.1.1] 
+#   |   |   |               ├── [page 1.1.1].html
+#   |   |   |               └── [page 1.1.1 attachment 1].[ext]
+#   |   |   └── [page2] 
+#   |   |       └── [page 2].html
+#   |   |       └── [page 2 attachment 1].[ext]
+#   |   ├── posts
+#   |   |   └── [top 1]
+#   |   |   |   ├── [top 1 post 1].html
+#   |   |   |   └── [top 1 post 1 attachment 1].[ext]
+#   |   |   ├── [page 1] 
+#   |   |   |   ├── [page 1 post 1].html
+#   |   |       └── [page 1 post 1 attachment 1].[ext]
 #   ├── attachments
-#   |   ├── [filename1]
-#   |   |   └── [attachment1] --> {static}/attachments/[filename1]/[attachment1]
-#   |   └── [filename2]
-#   |       └── [attachment2] --> {static}/attachments/[filename2]/[attachment2]
+#   |   ├── [attachment 1] --> {static}/attachments/[attachment 1]
+#   |   └── [attachment 2] --> {static}/attachments/[attachment 2]
 #   └── pelican.conf.py
 #           PATH = 'content'
-#           PAGE_PATHS = ['pages']
-#           ARTICLE_PATHS = ['articles']
+#           PAGE_PATHS = ['[top 1]/pages']
+#           ARTICLE_PATHS = ['[top 1]/posts']
 #           STATIC_PATHS = ['attachments']
 # ###################################################################################################################################################
 
@@ -71,6 +81,39 @@ MAPPING = {
 }
 
 # ###################################################################################################################################################
+# GET FILENAME
+# ###################################################################################################################################################
+
+def get_filename( directory, type, path, file ):
+    # directory: /Volumes/library/Development/jamstack/site
+    # path: [notebook, group, group, section, page, page]
+    # type: PAGE | POST | ATTACHMENT | STATIC
+    # file: filename
+    # return tupple:
+    #   computer filename
+    #   pelican link
+    filename = directory
+    root = path[0]
+    if type.lower() in ['PAGE']:
+        filename = os.join( filename, 'content', root, 'pages')
+    elif type.lower() in ['POST']:
+        filename = os.join( filename, 'content', 'pages')
+    elif type.lower() in ['PAGE']:
+        filename = os.join( filename, 'content', 'pages')
+    elif type.lower() in ['PAGE']:
+        filename = os.join( filename, 'content', 'pages')
+    else:
+        pass
+
+# ###################################################################################################################################################
+# GET FILE
+# ###################################################################################################################################################
+
+def get_file( element ):
+    # get the header + body
+    pass
+
+# ###################################################################################################################################################
 # WRITE
 # ###################################################################################################################################################
 
@@ -105,15 +148,27 @@ def write( directory, elements=empty_elements() ):
             # body
             # -------------------------------------------------------------------------------------------------------------------------------------------
 
-            soup = BeautifulSoup(element['body'] if element['body'] else '<body></body>', features="html.parser")
+            soup = BeautifulSoup(element['body'] if element['body'] == element['body'] else '<body></body>', features="html.parser")
 
             text += str( soup )
+
+            # -------------------------------------------------------------------------------------------------------------------------------------------
+            # resources
+            # -------------------------------------------------------------------------------------------------------------------------------------------
+
+            # if 'onenote_id' in elements and 'onenote_resources' in elements and 'onenote_self' in elements and 'onenote_file_name' in elements:
+            #     resources = elements[ elements['onenote_id'].isin(row['onenote_resources'].split(',')) ]
+            #     resources = dict(zip(resources['onenote_self'].str.replace('/content','/$value'), resources['onenote_file_name']))
+            #     for url, name in resources.items():
+            #         body = body.replace( url, name )
 
             # -------------------------------------------------------------------------------------------------------------------------------------------
             # write html
             # -------------------------------------------------------------------------------------------------------------------------------------------
 
-            element['pelican'] = os.path.join( folder_site, element['type']+'s', element['slug'] + '.html' )
+            element['pelican'] = element['id'].split('!')
+            element['pelican'].reverse()
+            element['pelican'] = os.path.join( folder_site, 'content', element['type']+'s', os.path.sep.join(element['pelican']), element['slug'] + '.html' )
             out_dir = os.path.dirname(element['pelican'])
 
             myprint('> ' + element['pelican'])
@@ -121,7 +176,7 @@ def write( directory, elements=empty_elements() ):
             if not os.path.isdir(out_dir):
                 os.makedirs(out_dir)
 
-            with open(element['nikola'], 'w', encoding='utf-8') as fs:
+            with open(element['pelican'], 'w', encoding='utf-8') as fs:
                 fs.write(text) 
 
         except:
@@ -136,9 +191,10 @@ def write( directory, elements=empty_elements() ):
     try:
 
         cond = elements['publish']
-        cond &= ~elements['body'].isna()
+        cond &= elements['type'].isin(['post', 'page'])
+        # cond &= ~elements['body'].isna()
         myprint( 'Processing {} elements to Pelican'.format(len(elements[cond])))
-        #elements[cond] = elements[cond].apply(_write_element, axis='columns')
+        elements[cond] = elements[cond].apply(_write_element, axis='columns')
 
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()
