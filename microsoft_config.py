@@ -14,6 +14,7 @@ SCOPE = [
 "User.ReadBasic.All"]
 SESSION_TYPE = "filesystem"  # So the token cache will be stored in a server-side session
 #REDIRECT_PATH = "http://localhost:5000/getAToken"
-CLIENT_SECRET = "jcw8Q~zQ6uby~u~vSw_0jZHdAJoprV1.EJF0DcnO"
 CLIENT_ID = "28fe51b5-e1d5-4e57-8b88-203f2ed1eb88"
+SECRET_VALUE = "2m_8Q~kIcOZfUf6EggBZ.HKge~dDdzDu~hOUrb-u"
+SECRET_ID = "413ca3cd-2507-4766-a22f-720672b8ef87"
 

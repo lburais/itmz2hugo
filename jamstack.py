@@ -8,12 +8,12 @@ Filename:     jamstack.py
 Configure:
   mkdir /Volumes/library
   mount_afp -i afp://Pharaoh.local/library /Volumes/library
-  cd /Volumes/library/Development/jamstack
+  cd /Volumes/development/jamstack
   python3 -m venv venv
   pip3 install requests pandas bs4 tabulate xlsxwriter openpyxl  markdown flask flask_session msal pelican
 
 Run:
-  cd /Volumes/library/Development/jamstack
+  cd /Volumes/development/jamstack
   source venv/bin/activate
   python3 jamstack.py --output site --nikola --html
   python3 jamstack.py --output site --nikola --https
@@ -365,7 +365,7 @@ if __name__ == "__main__":
     def _build_msal_app(cache=None, authority=None):
         return msal.ConfidentialClientApplication(
             microsoft_config.CLIENT_ID, authority=authority or microsoft_config.AUTHORITY,
-            client_credential=microsoft_config.CLIENT_SECRET, token_cache=cache)
+            client_credential=microsoft_config.SECRET_VALUE, token_cache=cache)
 
     def _get_token_from_cache(scope=None):
         cache = _load_cache()  # This web app maintains one cache per session
