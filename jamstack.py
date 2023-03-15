@@ -31,10 +31,7 @@ import shutil
 
 import microsoft_config
 
-import onenote
-import itmz
-import nikola
-import pelican
+from onenote import ONENOTE
 
 from mytools import *
 
@@ -60,36 +57,9 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    # parser.add_argument(
-    #     '-i', '--input', dest='source', default='onenote',
-    #     help='Data source')
-
     parser.add_argument(
         '-o', '--output', dest='output', default='site',
         help='Output path')
-
-    parser.add_argument(
-        '-s', '--stack', dest='stack', default='nikola',
-        help='Jamstack')
-    parser.add_argument(
-        '--nikola', action='store_true', dest='nikola',
-        help='Create Nikola structure')
-    parser.add_argument(
-        '--hugo', action='store_true', dest='hugo',
-        help='Create Hugo structure')
-    parser.add_argument(
-        '--pelican', action='store_true', dest='pelican',
-        help='Create Pelican structure')
-
-    parser.add_argument(
-        '-f', '--format', dest='generate', default='rst',
-        help='Output format')
-    parser.add_argument(
-        '--html', action='store_true', dest='html',
-        help='Use html files')
-    parser.add_argument(
-        '--md', action='store_true', dest='md',
-        help='Use markdown files')
 
     parser.add_argument(
         '--force', action='store_true', dest='force',
@@ -101,18 +71,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.hugo: args.stack='hugo'
-    if args.pelican: args.stack='pelican'
-    if args.nikola: args.stack='nikola'
-
-    if args.html: args.generate='html'
-    if args.md: args.generate='md'
-
     # ##############################################################################################################################################
     # output folder
     # ##############################################################################################################################################
 
-    args.output = os.path.join( args.output, args.stack )
+    args.output = os.path.join( args.output )
 
     if os.path.exists(args.output):
         try:
@@ -151,12 +114,55 @@ if __name__ == "__main__":
     Session(app)
     app.debug = True
 
+    onenote = None
+
+    def get_onenote():
+        global onenote
+
+        if not onenote:
+            token = get_token(microsoft_config.SCOPE)
+        
+            if token:
+                onenote = ONENOTE( token )
+
+        return onenote
+
     # ##############################################################################################################################################
     # ACTIONS 
     # ##############################################################################################################################################
 
     @app.route("/")
     @app.route("/index")
+    def index():
+        catalog = []
+        onenote = get_onenote()
+        if onenote: catalog = onenote.catalog()
+
+        return render_template('index.html', result={ 'catalog': catalog })
+
+    @app.route("/onenote")
+    def parse_onenote():
+        source = request.args.get('source')
+        command = request.args.get('command')
+        notebook = request.args.get('notebook')
+        page = request.args.get('page')
+        data = request.args.get('page')
+        print(page)
+
+        catalog = []
+        elements = []
+
+        onenote = get_onenote()
+        if onenote: 
+            catalog = onenote.catalog()
+            if command in ['parse']:
+                elements = onenote.parse( [ notebook ] if notebook else None )
+            elif command in ['list']:
+                elements = onenote.list()
+
+
+        return render_template('content.html', result={ 'catalog': catalog, 'elements': elements })
+
     @app.route("/empty")
     @app.route("/refresh")
     @app.route("/excel")
@@ -174,111 +180,114 @@ if __name__ == "__main__":
 
             if len(action) > 0: myprint( '', line=True, title='ACTION: {}'.format(action.upper()) )
 
+            if action in ['no action']:
+                pass
+
             # ---------------------------------------------------------------------------------------------------------------------------------------
             # CLEAR ELEMENTS DATAFRAME
             # ---------------------------------------------------------------------------------------------------------------------------------------
-            if action in ['empty']:
-                elements = empty_elements()
+            # elif action in ['empty']:
+            #     elements = empty_elements()
 
             # ---------------------------------------------------------------------------------------------------------------------------------------
             # OPEN LAST EXCEL FILE
             # ---------------------------------------------------------------------------------------------------------------------------------------
-            elif action in ['excel']:
-                cat = pd.DataFrame( catalog )
-                file = cat[cat['source'].isin(['directory'])]['filename'].to_list()[-1]
-                if platform.system() == 'Darwin':
-                    myprint( 'Opening {}'.format(file))
-                    os.system('open "' + file + '"')
-                else:
-                    myprint( 'Cannot open {} on {}'.format( file, platform.system() ) )
-                del cat
+            # elif action in ['excel']:
+            #     cat = pd.DataFrame( catalog )
+            #     file = cat[cat['source'].isin(['directory'])]['filename'].to_list()[-1]
+            #     if platform.system() == 'Darwin':
+            #         myprint( 'Opening {}'.format(file))
+            #         os.system('open "' + file + '"')
+            #     else:
+            #         myprint( 'Cannot open {} on {}'.format( file, platform.system() ) )
+            #     del cat
 
             # ---------------------------------------------------------------------------------------------------------------------------------------
             # REMOVE ORPHAN FILES
             # ---------------------------------------------------------------------------------------------------------------------------------------
-            elif action in ['remove']:
-                nikola.clear( directory=FOLDER_SITE )
-                pelican.clear( directory=FOLDER_SITE )
-                itmz.clear( directory=FOLDER_STATIC, elements=elements )
-                onenote.clear( directory=FOLDER_STATIC, elements=elements, all=False )
+            # elif action in ['remove']:
+            #     nikola.clear( directory=FOLDER_SITE )
+            #     pelican.clear( directory=FOLDER_SITE )
+            #     itmz.clear( directory=FOLDER_STATIC, elements=elements )
+            #     onenote.clear( directory=FOLDER_STATIC, elements=elements, all=False )
 
             # ---------------------------------------------------------------------------------------------------------------------------------------
             # WRITE TO NIKOLA
             # ---------------------------------------------------------------------------------------------------------------------------------------
-            elif action in ['nikola']:
-                elements = nikola.write( directory = FOLDER_SITE,
-                                         elements = elements )        
+            # elif action in ['nikola']:
+            #     elements = nikola.write( directory = FOLDER_SITE,
+            #                              elements = elements )        
 
             # ---------------------------------------------------------------------------------------------------------------------------------------
             # WRITE TO PELICAN
             # ---------------------------------------------------------------------------------------------------------------------------------------
-            elif action in ['pelican']:
-                elements = pelican.write( directory = FOLDER_SITE,
-                                          elements = elements )        
+            # elif action in ['pelican']:
+            #     elements = pelican.write( directory = FOLDER_SITE,
+            #                               elements = elements )        
 
             # ---------------------------------------------------------------------------------------------------------------------------------------
             # LOAD EXCEL FILE
             # ---------------------------------------------------------------------------------------------------------------------------------------
-            elif action in ['getfile']:
-                filename = request.args.get('filename')
-                if filename:
-                    if os.path.isfile( filename ):
-                        myprint( 'Loading {} file'.format(filename))
+            # elif action in ['getfile']:
+            #     filename = request.args.get('filename')
+            #     if filename:
+            #         if os.path.isfile( filename ):
+            #             myprint( 'Loading {} file'.format(filename))
 
-                        try:
-                            elements = pd.read_excel( filename, sheet_name='Elements', engine='openpyxl')
-                            myprint( "{} rows loaded.".format(len(elements)) ) 
-                        except:
-                            myprint( "Something went wrong with file {}.".format(filename) ) 
+            #             try:
+            #                 elements = pd.read_excel( filename, sheet_name='Elements', engine='openpyxl')
+            #                 myprint( "{} rows loaded.".format(len(elements)) ) 
+            #             except:
+            #                 myprint( "Something went wrong with file {}.".format(filename) ) 
 
             # ---------------------------------------------------------------------------------------------------------------------------------------
             # PARSE ELEMENTS
             # ---------------------------------------------------------------------------------------------------------------------------------------
-            elif action in ['parse']:
-                what = request.args.get('what')
-                source = request.args.get('source')
-                url = request.args.get('url')
+            # elif action in ['parse']:
+            #     what = request.args.get('what')
+            #     source = request.args.get('source')
+            #     url = request.args.get('url')
 
-                if source in ['all', 'onenote']:
+            #     if source in ['all', 'onenote']:
 
-                    if not session.get("user"):
-                        return redirect(url_for("login"))
+            #         if not session.get("user"):
+            #             return redirect(url_for("login"))
 
-                    token = get_token(microsoft_config.SCOPE)
+            #         token = get_token(microsoft_config.SCOPE)
 
-                    # http://localhost:5000/parse?what=notebooks&url=.../onenote/notebooks/0-34CFFB16AE39C6B3!4390&source=onenote
-                    # http://localhost:5000/parse?what=content&url=None&source=onenote
-                    # http://localhost:5000/parse?what=resources&url=None&source=onenote
-                    # source=onenote
-                    # ALL NOTEBOOKS    what=notebooks
-                    # ALL CONTENTS     what=content
-                    # ALL RESOURCES    what=resources
-                    # ONE NOTEBOOK     what=OneNote notebook url=onenote_self
-                    # REFRESH          what=refresh
-                    # CLEAR            what=clear - remove unused resources - not yet implemented
-                    # CLEAN            what=clean
+            #         # http://localhost:5000/parse?what=notebooks&url=.../onenote/notebooks/0-34CFFB16AE39C6B3!4390&source=onenote
+            #         # http://localhost:5000/parse?what=content&url=None&source=onenote
+            #         # http://localhost:5000/parse?what=resources&url=None&source=onenote
+            #         # source=onenote
+            #         # ALL NOTEBOOKS    what=notebooks
+            #         # ALL CONTENTS     what=content
+            #         # ALL RESOURCES    what=resources
+            #         # ONE NOTEBOOK     what=OneNote notebook url=onenote_self
+            #         # REFRESH          what=refresh
+            #         # CLEAR            what=clear - remove unused resources - not yet implemented
+            #         # CLEAN            what=clean
 
-                    onenote_elements = onenote.read( token = token['access_token'],
-                                                     what = what,
-                                                     url = url if url not in ['', 'nan', 'None'] else None,
-                                                     directory = FOLDER_STATIC,
-                                                     elements = elements if what in ['content', 'resources', 'refresh'] else empty_elements()
-                                                )
+            #         onenote_elements = onenote.read( token = token['access_token'],
+            #                                          what = what,
+            #                                          url = url if url not in ['', 'nan', 'None'] else None,
+            #                                          directory = FOLDER_STATIC,
+            #                                          elements = elements if what in ['content', 'resources', 'refresh'] else empty_elements()
+            #                                     )
 
-                    elements = pd.concat( [ elements[~elements['source'].isin(['onenote'])], onenote_elements ], ignore_index = True )
+            #         elements = pd.concat( [ elements[~elements['source'].isin(['onenote'])], onenote_elements ], ignore_index = True )
 
-                if source in ['all', 'itmz']:
+            #     if source in ['all', 'itmz']:
 
-                    itmz_elements = itmz.read( directory = FOLDER_STATIC,
-                                            source = FOLDER_ITMZ, 
-                                            elements = empty_elements() )
+            #         itmz_elements = itmz.read( directory = FOLDER_STATIC,
+            #                                 source = FOLDER_ITMZ, 
+            #                                 elements = empty_elements() )
 
-                    elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
+            #         elements = pd.concat( [ elements[~elements['source'].isin(['itmz', nan])], itmz_elements ], ignore_index = True )
                 
-                if source in ['all', 'notes']:
-                    pass
+            #     if source in ['all', 'notes']:
+            #         pass
                 
-                save_excel(FOLDER_STATIC, elements)
+            #     save_excel(FOLDER_STATIC, elements)
 
             # ---------------------------------------------------------------------------------------------------------------------------------------
             # LOAD CATALOG
@@ -349,8 +358,7 @@ if __name__ == "__main__":
                 result["error"], result.get("error_description"))
         session["user"] = result.get("id_token_claims")
         _save_cache(cache)
-#        return redirect(url_for("index.html"))
-        return redirect(url_for("actions"))
+        return redirect("/")
 
     def _load_cache():
         cache = msal.SerializableTokenCache()

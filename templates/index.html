@@ -1,100 +1,19 @@
 {% extends "base.html" %}
 {% block mainheader %}JamStack{% endblock %}
 {% block buttons %}
-    <a class="btn btn-warning" href="/nikola" role="button">Write to Nikola</a>
-    <a class="btn btn-warning" href="/pelican" role="button">Write to Pelican</a>
-    <a class="btn btn-warning" href="/update" role="button">Write to OneNote</a>
-    <a class="btn btn-warning" href="/remove" role="button">Remove orphan files</a>
-    <a class="btn btn-warning" href="/empty" role="button">Empty elements</a>
-    <a class="btn btn-warning" href="/elements" role="button">Refresh elements</a>
-    <a class="btn btn-warning" href="/excel" role="button">Open last Excel</a>
-    {% if result.logged %}
-      <a class="btn btn-success" href="/login" role="button">Login</a>
-    {% else %}
-      <a class="btn btn-danger" href="/logout" role="button">Logout</a>
-    {% endif %}
-    <hr>
-    {% for c in result.catalog %}
-        {% if c.source == 'directory' %}
-          <a class="btn btn-secondary" href="/getfile?filename={{ c.filename }}" role="button">{{ c.name }}</a>
-        {% endif %}
-    {% endfor %}
+    <a class="btn btn-success" href="/login" role="button">Login</a>
+    <a class="btn btn-danger" href="/logout" role="button">Logout</a>
     <hr>
     {% for c in result.catalog %}
         {% if c.source == 'onenote' %}
-          <a class="btn btn-primary" href="/parse?what={{ c.what }}&url={{ c.onenote_self }}&source={{ c.source }}" role="button">{{ c.title }}</a>
+          <a class="btn btn-primary" href="/{{ c.source }}?command={{ c.command }}" role="button">{{ c.name }}</a>
         {% endif %}
     {% endfor %}
     <hr>
     {% for c in result.catalog %}
         {% if c.source == 'itmz' %}
-            <a class="btn btn-primary" href="/parse?what={{ c.what }}&filename={{ c.itmz_filename }}&source={{ c.source }}" role="button">{{ c.title }}</a>
+            <a class="btn btn-primary" href="{{ c.href }}" role="button">{{ c.name }}</a>
         {% endif %}
     {% endfor %}
     <hr>
-{% endblock %}
-{% block elements %}
-{{result.elements|length}} elements
-<hr>
-<table id="data" class="table table-striped">
-    <thead>
-        <tr>
-          <td>Content</td>            
-          <td>What</td>
-          <td>IDs</td>
-          <td>Title</td>            
-          <td>Date</td>            
-          <td>Author</td>            
-          <td>Content</td>            
-      </tr>
-    </thead>
-    <tbody>
-      {% for x in result.elements %}
-        {% if x.publish %}
-          <tr>
-            <td>
-              {% if x.body is string %}
-                <a class="btn btn-secondary" href="/element?id={{ x.id }}"" target="_blank" role="button">Display</a>
-              {% endif %}
-            </td>
-            <td>{{ x.source }}.{{ x.what }}<br>[{{ x.type }}]</td>
-            <td>{{ x.id }}<br>P[{{ x.parent }}]<br>C[{{ x.childs }}]</td>
-            <td>{{ x.title }}</td>
-            <td>
-              {% if x.modified > x.created %}
-                {{ x.modified }}
-              {% else %}
-                {{ x.created }}
-              {% endif %}
-            </td>
-            <td>{{ x.authors }}</td>
-            <td>
-              {% if x.body is string %}
-                {{ x.body }}
-              {% endif %}
-            </td>
-          </tr>
-        {% endif %}
-      {% endfor %}
-    </tbody>
-</table>
-<script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.js"></script>
-<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap5.js"></script>
-<script>
-  $(document).ready(function () {
-    $('#data').DataTable({
-      columns: [
-        {orderable: true, searchable: false},
-        {orderable: false, searchable: true},
-        {orderable: false, searchable: true},
-        {orderable: false, searchable: true},
-        {orderable: false, searchable: true},
-        {orderable: false, searchable: false},
-        {orderable: false, searchable: true},
-        {orderable: false, searchable: true},
-      ],
-    });
-  });
-</script>
 {% endblock %}

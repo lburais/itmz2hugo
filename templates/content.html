@@ -1,0 +1,48 @@
+{% extends "index.html" %}
+{% block elements %}
+{{result.elements|length}} elements
+{% if result.elements|length > 0 %}
+    <table id="data" class="table table-striped">
+        <thead>
+            <tr>
+                <td>Name</td>
+                <td>Source</td>            
+                <td>Object</td>
+                <td>Date</td>            
+                <td>Action</td>            
+            </tr>
+        </thead>
+        <tbody>
+        {% for x in result.elements %}
+            <tr>
+                <td>{{ x.name|indent(4) }}</td>
+                <td>{{ x.source }}</td>
+                <td>{{ x.object }}</td>
+                <td>{{ x.date }}</td>
+                <td>
+                    {% if x.url is defined %}
+                    <a class="btn btn-secondary" href="{{ x.url }}"" target="_blank" role="button">Display</a>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.js"></script>
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap5.js"></script>
+    <script>
+    $(document).ready(function () {
+        $('#data').DataTable({
+        columns: [
+            {orderable: false, searchable: true},
+            {orderable: false, searchable: true},
+            {orderable: false, searchable: true},
+            {orderable: false, searchable: false},
+            {orderable: false, searchable: false},
+        ],
+        });
+    });
+    </script>
+{% endif %}
+{% endblock %}
