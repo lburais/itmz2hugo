@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block mainheader %}JamStack{% endblock %}
 {% block buttons %}
-    <a class="btn btn-success" href="/login" role="button">Login</a>
-    <a class="btn btn-danger" href="/logout" role="button">Logout</a>
+    <div valign="middle">
+      <a class="btn btn-success" href="/login" role="button">Login</a>
+      <a class="btn btn-danger" href="/logout" role="button">Logout</a>
+    </div>
     <hr>
     {% for c in result.catalog %}
         {% if c.source == 'onenote' %}

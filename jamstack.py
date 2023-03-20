@@ -146,8 +146,7 @@ if __name__ == "__main__":
         command = request.args.get('command')
         notebook = request.args.get('notebook')
         page = request.args.get('page')
-        data = request.args.get('page')
-        print(page)
+        data = request.args.get('data')
 
         catalog = []
         elements = []
