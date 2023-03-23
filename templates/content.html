@@ -6,23 +6,23 @@
         <thead>
             <tr>
                 <td>Name</td>
-                <td>Source</td>            
-                <td>Object</td>
                 <td>Date</td>            
-                <td>Action</td>            
+                <td></td>            
             </tr>
         </thead>
         <tbody>
-        {% for x in result.elements %}
+        {% for ele in result.elements %}
             <tr>
-                <td>{{ x.name }}</td>
-                <td>{{ x.source }}</td>
-                <td>{{ x.object }}</td>
-                <td>{{ x.date }}</td>
+                <td>{{ ele.name }}<br>{{ ele.url }}</td>
+                <td>{{ ele.date }}</td>
                 <td>
-                    {% if x.url is defined %}
-                    <a class="btn btn-secondary" href="{{ x.url }}"" target="_blank" role="button">Display</a>
+                    {% if ele.source == 'onenote' %}
+                    <a class="btn btn-primary" href="/{{ ele.source }}?command=display&id={{ ele.id }}" target="_blank" role="button">Display</a>
+                    <a class="btn btn-secondary" href="/{{ ele.source }}?command=write&id={{ ele.id }}" role="button">Write</a>
+                    {% elif ele.source == 'notes' %}
+                    <a class="btn btn-secondary" href="/{{ ele.source }}?command=display&id={{ ele.id }}" target="_blank" role="button">Display</a>
                     {% endif %}
+
                 </td>
             </tr>
         {% endfor %}
@@ -35,10 +35,8 @@
     $(document).ready(function () {
         $('#data').DataTable({
         columns: [
-            {orderable: false, searchable: true},
-            {orderable: false, searchable: true},
-            {orderable: false, searchable: true},
-            {orderable: false, searchable: false},
+            {orderable: true, searchable: true},
+            {orderable: true, searchable: false},
             {orderable: false, searchable: false},
         ],
         });

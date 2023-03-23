@@ -9,6 +9,10 @@
 #   https://developer.microsoft.com/fr-fr/graph/graph-explorer
 #
 # #####################################################################################################################################################################################################
+# OneNote structure
+# -------------------
+#
+# #####################################################################################################################################################################################################
 
 import json
 import requests
@@ -30,6 +34,19 @@ from fnmatch import fnmatch
 
 from mytools import *
 
+from flask import Flask, render_template, session, request, redirect, url_for
+from flask_session import Session
+
+import msal
+
+import uuid
+
+# #####################################################################################################################################################################################################
+# INTERNALS
+# #####################################################################################################################################################################################################
+
+import microsoft_config
+
 MICROSOFT_GRAPH_URL = 'https://graph.microsoft.com/v1.0'
 ALL_NOTEBOOKS = 'All Notebooks'
 
@@ -42,6 +59,10 @@ KO = False
 
 def _indent_print(depth, text):
     print('  ' * depth + text)
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# GET_OBJECT_DATE
+# -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 def _get_object_date( obj ):
     try:
@@ -65,9 +86,12 @@ class ONENOTE:
     # __INIT__
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    def __init__ (self, token, output_directory=None ):
+    def __init__ (self, token=None, output_directory=None, app=None ):
 
         self.token = token
+        
+        self.app = app
+        
         if output_directory:
             self.output_directory = output_directory
         else:
@@ -80,17 +104,23 @@ class ONENOTE:
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
     def catalog( self ):
+        print( f'catalog ...')
+
         notebooks = self._get_json(f'{MICROSOFT_GRAPH_URL}/me/onenote/notebooks')
 
+        print( f'catalog [{len(notebooks)}] {notebooks}')
+
+        catalog = []
+
         # add command to list all local onenote        
-        catalog = [ { 'source': 'onenote', 'object': 'onenote', 'name': 'Onenote', 'command': 'list' } ]
+        # catalog = [ { 'source': 'onenote', 'object': 'notebook', 'name': 'Onenote', 'url': 'list' } ]
 
         # add command to parse all notebooks        
-        catalog += [ { 'source': 'onenote', 'object': 'notebook', 'name': 'All Notebooks', 'command': 'parse' } ] if len(notebooks) > 0 else []
+        catalog += [ { 'source': 'onenote', 'object': 'notebook', 'name': 'All Notebooks', 'url': 'parse' } ] if len(notebooks) > 0 else []
 
         # add command to parse each notebook      
         for nb in notebooks:
-            catalog += [ { 'source': 'onenote', 'object': 'notebook', 'name': nb['displayName'], 'command': 'parse&notebook={}'.format(nb['displayName']) } ]
+            catalog += [ { 'source': 'onenote', 'object': 'notebook', 'name': nb['displayName'], 'url': 'parse&notebook={}'.format(nb['displayName']) } ]
 
         return catalog
 
@@ -98,7 +128,7 @@ class ONENOTE:
     # LIST
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    def list( self ):
+    def list( self, id=None ):
         catalog = []
 
         base = len(os.path.normpath(self.output_directory).split(os.sep))
@@ -107,6 +137,7 @@ class ONENOTE:
             element = { 'source': 'onenote' }
 
             element['indent'] = len(os.path.normpath(root).split(os.sep)) - base
+            element['folder'] = root
 
             for file in files:
                 root_ext = os.path.splitext(file)
@@ -124,14 +155,17 @@ class ONENOTE:
                             if 'displayName' in f_content: element['name'] = f_content['displayName']
                             elif 'title' in f_content: element['name'] = f_content['title']
 
-                            if 'lastModifiedDateTime' in f_content: element['date'] = f_content['lastModifiedDateTime']
-                            else: element['date'] = f_content['createdDateTime']
+                            element['date'] = _get_object_date( f_content ).strftime("%Y-%m-%d %H:%M:%S")
 
-                            if 'main.html' in files: element['url'] = 'file://' + os.path.join(root, 'main.html')
+                            element['id'] = f_content['id']
+
+                            if 'main.html' in files: 
+                                element['file'] = os.path.join(root, 'main.html')
 
                             element['data'] = f_content
 
-                            catalog += [ element ]
+                            if not id or element['id'] == id:
+                                catalog += [ element ]
 
         return catalog
 
@@ -143,7 +177,154 @@ class ONENOTE:
 
         if notebook in [ALL_NOTEBOOKS]: notebook = None
         self._download_notebooks( self.output_directory, select=notebook, force=force )
-        return []
+
+        return OK
+
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # WRITE
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    def write( self, pages=None, force=False ):
+        # not supported
+        return KO
+
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # PAGE
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    def page( self, id ):
+
+        note = None
+
+        try:
+            print( f'searching {id}...')
+
+            notes = self.list( id )
+
+            if len(notes) == 1:
+                print( f'found {notes}')
+                file = os.path.join( notes[0]['folder'], 'main.html')
+                note = { 'name': '', 'body': '', 'hierarchy': [], 'attachments': [] }
+                if os.path.exists( file ): 
+                    note.name = notes[0]['name']
+
+                    with open(file, 'r') as f:
+                        note.body = f.read()
+                        # NEED TO FIX IMAGES AND ATTACHMENTS
+
+                    note.hierarchy = os.path.relpath(folder, start=self.output_directory).split(os.sep)
+                    note.hierarchy.pop()
+
+                    attachments = os.path.join( notes[0]['folder'], 'attachments')
+                    if os.path.exists( attachments ): 
+                        for root, subdirs, files in os.walk(attachments):
+                            for file in files:
+                                note.attachments += [ os.path.join( root, file )]
+
+        except:
+            print('error')
+
+        return note
+
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # GET
+    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    def get(self, url):
+        action = url.split('/')[-1]
+        print( f'action: {action}, url: {url}' )
+
+        if action in ['getAToken']:
+            return self._authorized()
+
+        elif action in ['login']:
+            return self._login()
+
+        elif action in ['logout']:
+            return self._logout()
+
+        elif action in ['onenote']:
+            command = request.args.get('command')
+            notebook = request.args.get('notebook')
+            id = request.args.get('id')
+
+            if command in ['parse']:
+                return self.parse( [ notebook ] if notebook else None )
+
+            elif command in ['list']:
+                return self.list()
+
+            elif command in ['display']:
+                page = self.page( id )
+                if page: 
+                    out_html = page.body
+                    # NEED TO FIX IMAGES AND ATTACHMENTS
+                else:
+                    out_html = '<!DOCTYPE html><html lang="en"><head></head><body!>' + "FILE DOES NOT EXIST"
+                    out_html += "FILE [{}] DOES NOT EXIST".format(file)
+                    out_html += '</body></html>'
+
+                return out_html
+
+    def _authorized(self):
+        if request.args['state'] != session.get("state"):
+            return redirect(url_for("login"))
+        cache = self._load_cache()
+        result = self._build_msal_app(cache).acquire_token_by_authorization_code(
+            request.args['code'],
+            scopes=microsoft_config.SCOPE,
+            redirect_uri=url_for("authorized", _external=True))
+        if "error" in result:
+            return "Login failure: %s, %s" % (
+                result["error"], result.get("error_description"))
+        session["user"] = result.get("id_token_claims")
+        self._save_cache(cache)
+        return "/"
+
+    def _load_cache(self):
+        cache = msal.SerializableTokenCache()
+        if session.get("token_cache"):
+            cache.deserialize(session["token_cache"])
+        return cache
+
+    def _save_cache(self, cache):
+        if cache.has_state_changed:
+            session["token_cache"] = cache.serialize()
+
+    def _build_msal_app(self, cache=None, authority=None):
+        return msal.ConfidentialClientApplication(
+            microsoft_config.CLIENT_ID, authority=authority or microsoft_config.AUTHORITY,
+            client_credential=microsoft_config.SECRET_VALUE, token_cache=cache)
+
+    def _get_token_from_cache(self, scope=None):
+        cache = self._load_cache()  # This web app maintains one cache per session
+        cca = self._build_msal_app(cache)
+        accounts = cca.get_accounts()
+        if accounts:  # So all accounts belong to the current signed-in user
+            result = cca.acquire_token_silent(scope, account=accounts[0])
+            self._save_cache(cache)
+            return result
+
+    def get_token(self, scope):
+        token = self._get_token_from_cache(scope)
+        if not token:
+            return redirect(url_for("login"))
+        return token
+
+    def _login(self):
+        session["state"] = str(uuid.uuid4())
+        auth_url = self._build_msal_app().get_authorization_request_url(
+            microsoft_config.SCOPE,
+            state=session["state"],
+            redirect_uri=url_for("authorized", _external=True))
+        # return "<a href='%s'>Login with Microsoft Identity</a>" % auth_url
+        return auth_url
+
+        return render_template( 'login.html', auth_url=auth_url )
+
+    def _logout(self):
+        session.clear()  # Wipe out the user and the token cache from the session
+        return "https://login.microsoftonline.com/common/oauth2/v2.0/logout?post_logout_redirect_uri=" + url_for("login", _external=True)
 
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     # GET_JSON
@@ -173,8 +354,13 @@ class ONENOTE:
     def _get(self, url, indent=0):
         try:
             sec = 0
+
+            token = self._get_token_from_cache(microsoft_config.SCOPE)
+            if not token:
+                return redirect(url_for("login"))
+
             while True:
-                resp = requests.get( url, headers={'Authorization': 'Bearer ' + self.token['access_token']} )
+                resp = requests.get( url, headers={'Authorization': 'Bearer ' + token['access_token']} )
 
                 if resp.status_code == 429:
                     # We are being throttled due to too many requests.
