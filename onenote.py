@@ -86,12 +86,8 @@ class ONENOTE:
     # __INIT__
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    def __init__ (self, token=None, output_directory=None, app=None ):
-
-        self.token = token
-        
-        self.app = app
-        
+    def __init__ (self, output_directory=None ):
+                
         if output_directory:
             self.output_directory = output_directory
         else:
@@ -100,186 +96,203 @@ class ONENOTE:
         self.output_directory = os.path.join( self.output_directory, 'onenote' )
 
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    # CATALOG
+    # PROCESS_URL
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    def catalog( self ):
-        print( f'catalog ...')
-
-        notebooks = self._get_json(f'{MICROSOFT_GRAPH_URL}/me/onenote/notebooks')
-
-        print( f'catalog [{len(notebooks)}] {notebooks}')
-
-        catalog = []
-
-        # add command to list all local onenote        
-        # catalog = [ { 'source': 'onenote', 'object': 'notebook', 'name': 'Onenote', 'url': 'list' } ]
-
-        # add command to parse all notebooks        
-        catalog += [ { 'source': 'onenote', 'object': 'notebook', 'name': 'All Notebooks', 'url': 'parse' } ] if len(notebooks) > 0 else []
-
-        # add command to parse each notebook      
-        for nb in notebooks:
-            catalog += [ { 'source': 'onenote', 'object': 'notebook', 'name': nb['displayName'], 'url': 'parse&notebook={}'.format(nb['displayName']) } ]
-
-        return catalog
-
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    # LIST
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-    def list( self, id=None ):
-        catalog = []
-
-        base = len(os.path.normpath(self.output_directory).split(os.sep))
-
-        for root, subdirs, files in os.walk(self.output_directory):
-            element = { 'source': 'onenote' }
-
-            element['indent'] = len(os.path.normpath(root).split(os.sep)) - base
-            element['folder'] = root
-
-            for file in files:
-                root_ext = os.path.splitext(file)
-
-                if root_ext[1] in ['.json']:
-                    element['object'] = root_ext[0]
-
-                    if element['object'] in ['page']:
-
-                        element['hierarcchy'] = root.split(os.sep)
-
-                        with open(os.path.join(root, file), 'r') as f:
-                            f_content = json.load(f)
-                            
-                            if 'displayName' in f_content: element['name'] = f_content['displayName']
-                            elif 'title' in f_content: element['name'] = f_content['title']
-
-                            element['date'] = _get_object_date( f_content ).strftime("%Y-%m-%d %H:%M:%S")
-
-                            element['id'] = f_content['id']
-
-                            if 'main.html' in files: 
-                                element['file'] = os.path.join(root, 'main.html')
-
-                            element['data'] = f_content
-
-                            if not id or element['id'] == id:
-                                catalog += [ element ]
-
-        return catalog
-
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    # PARSE
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-    def parse( self, notebook=None, force=False ):
-
-        if notebook in [ALL_NOTEBOOKS]: notebook = None
-        self._download_notebooks( self.output_directory, select=notebook, force=force )
-
-        return OK
-
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    # WRITE
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-    def write( self, pages=None, force=False ):
-        # not supported
-        return KO
-
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    # PAGE
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-    def page( self, id ):
-
-        note = None
+    def process_url(self, force=False):
 
         try:
-            print( f'searching {id}...')
+                       
+            action = request.base_url.split('/')[-1]
+            command = request.args.get('command') 
 
-            notes = self.list( id )
+            print( f'[onenote] action: {action}, command: {command}, url: {request.url}' )
 
-            if len(notes) == 1:
-                print( f'found {notes}')
-                file = os.path.join( notes[0]['folder'], 'main.html')
-                note = { 'name': '', 'body': '', 'hierarchy': [], 'attachments': [] }
-                if os.path.exists( file ): 
-                    note.name = notes[0]['name']
+            catalog = []
+            pages = []
+            note = { 'name': '', 'body': '', 'hierarchy': [], 'attachments': [] }
 
-                    with open(file, 'r') as f:
-                        note.body = f.read()
-                        # NEED TO FIX IMAGES AND ATTACHMENTS
+            # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            # GETATOKEN
+            # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-                    note.hierarchy = os.path.relpath(folder, start=self.output_directory).split(os.sep)
-                    note.hierarchy.pop()
+            if action in ['getAToken']:
+                if request.args['state'] != session.get("state"):
+                    return redirect(url_for("login"))
+                cache = self._load_cache()
+                result = self._build_msal_app(cache).acquire_token_by_authorization_code(
+                    request.args['code'],
+                    scopes=microsoft_config.SCOPE,
+                    redirect_uri=url_for("authorized", _external=True))
+                if "error" in result:
+                    return "Login failure: %s, %s" % (
+                        result["error"], result.get("error_description"))
+                session["user"] = result.get("id_token_claims")
+                self._save_cache(cache)
+                return "/"
 
-                    attachments = os.path.join( notes[0]['folder'], 'attachments')
-                    if os.path.exists( attachments ): 
-                        for root, subdirs, files in os.walk(attachments):
-                            for file in files:
-                                note.attachments += [ os.path.join( root, file )]
+            # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            # LOGIN
+            # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+            elif action in ['login']:
+                session["state"] = str(uuid.uuid4())
+                auth_url = self._build_msal_app().get_authorization_request_url(
+                    microsoft_config.SCOPE,
+                    state=session["state"],
+                    redirect_uri=url_for("authorized", _external=True))
+                return auth_url
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            # LOGOUT
+            # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+            elif action in ['logout']:
+                session.clear()  
+                return "https://login.microsoftonline.com/common/oauth2/v2.0/logout?post_logout_redirect_uri=" + url_for("login", _external=True)
+
+            # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            # COMMAND
+            # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+            elif action in ['catalog', 'content', 'onenote']:
+                notebook = request.args.get('notebook')
+                id = request.args.get('id')
+
+                if not command: command = action
+
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # CATALOG
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # requires to be online
+
+                if command in ['catalog']:
+                    notebooks = self._get_json(f'{MICROSOFT_GRAPH_URL}/me/onenote/notebooks')
+
+                    # add command to parse all notebooks        
+                    catalog += [ { 'source': 'onenote', 'object': 'notebook', 'name': 'All Notebooks', 'url': 'parse' } ] if len(notebooks) > 0 else []
+
+                    # add command to parse each notebook      
+                    for nb in notebooks:
+                        catalog += [ { 'source': 'onenote', 'object': 'notebook', 'name': nb['displayName'], 'url': 'parse&notebook={}'.format(nb['displayName']) } ]
+                    
+                    return { 'catalog': catalog }
+
+                # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # PARSE
+                # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # requires to be online
+
+                if command in ['parse']:
+
+                    if notebook in [ALL_NOTEBOOKS]: notebook = None
+                    self._download_notebooks( self.output_directory, select=notebook, force=force )
+
+                # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # CONTENT
+                # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+                base = len(os.path.normpath(self.output_directory).split(os.sep))
+
+                for root, subdirs, files in os.walk(self.output_directory):
+                    element = { 'source': 'onenote' }
+
+                    element['indent'] = len(os.path.normpath(root).split(os.sep)) - base
+                    element['folder'] = root
+
+                    for file in files:
+                        root_ext = os.path.splitext(file)
+
+                        if root_ext[1] in ['.json']:
+                            element['object'] = root_ext[0]
+
+                            if element['object'] in ['page']:
+
+                                element['hierarcchy'] = root.split(os.sep)
+
+                                with open(os.path.join(root, file), 'r') as f:
+                                    f_content = json.load(f)
+                                    
+                                    element['data'] = f_content
+
+                                    if 'displayName' in f_content: element['name'] = f_content['displayName']
+                                    elif 'title' in f_content: element['name'] = f_content['title']
+
+                                    element['date'] = _get_object_date( f_content ).strftime("%Y-%m-%d %H:%M:%S")
+
+                                    element['id'] = f_content['id']
+
+                                    if (not id or element['id'] == id) and ('main.html' in files):
+                                        element['file'] = os.path.join(root, 'main.html')
+
+                                        pages += [ element ]
+
+                if command in ['content']:
+
+                    return { 'catalog': catalog, 'elements': pages }  
+
+                # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # ONE PAGE
+                # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+                if command in ['get', 'write', 'display'] and len(pages) == 1:
+
+                    page = pages[0]
+
+                    # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                    # GET
+                    # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+                    file = os.path.join( page['folder'], 'main.html')
+                    
+                    if os.path.exists( file ): 
+                        note['name'] = page['name']
+
+                        with open(file, 'r') as f:
+                            note['body'] = f.read()
+                            # NEED TO FIX IMAGES AND ATTACHMENTS
+
+                        note['hierarchy'] = os.path.relpath(page['folder'], start=self.output_directory).split(os.sep)
+                        note['hierarchy'].pop()
+                        note['hierarchy'].insert(0, 'onenote')
+
+                        attachments = os.path.join( page['folder'], 'attachments')
+                        if os.path.exists( attachments ): 
+                            for root, subdirs, files in os.walk(attachments):
+                                for file in files:
+                                    note['attachments'] += [ os.path.join( root, file )]
+
+                    # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                    # DISPLAY
+                    # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+                    if command in ['display']:
+
+                        note['body'] = clean_html( note['body'])
+
+                        return { 'catalog': catalog, 'body': note['body'] }
+                    
+                    # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                    # WRITE
+                    # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+                    if command in ['write']:
+
+                        return { 'catalog': catalog, 'note': note, 'comment': note['body'] }
+
+                else:
+                    return { 'comment': f'too many pages for id {id}', 'catalog': catalog }
+
+            return {}
 
         except:
-            print('error')
-
-        return note
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            return { 'comments': "Something went wrong [{} - {}] at line {} in {}.".format(exc_type, exc_obj, exc_tb.tb_lineno, fname) }
 
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    # GET
+    # CACHE
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-    def get(self, url):
-        action = url.split('/')[-1]
-        print( f'action: {action}, url: {url}' )
-
-        if action in ['getAToken']:
-            return self._authorized()
-
-        elif action in ['login']:
-            return self._login()
-
-        elif action in ['logout']:
-            return self._logout()
-
-        elif action in ['onenote']:
-            command = request.args.get('command')
-            notebook = request.args.get('notebook')
-            id = request.args.get('id')
-
-            if command in ['parse']:
-                return self.parse( [ notebook ] if notebook else None )
-
-            elif command in ['list']:
-                return self.list()
-
-            elif command in ['display']:
-                page = self.page( id )
-                if page: 
-                    out_html = page.body
-                    # NEED TO FIX IMAGES AND ATTACHMENTS
-                else:
-                    out_html = '<!DOCTYPE html><html lang="en"><head></head><body!>' + "FILE DOES NOT EXIST"
-                    out_html += "FILE [{}] DOES NOT EXIST".format(file)
-                    out_html += '</body></html>'
-
-                return out_html
-
-    def _authorized(self):
-        if request.args['state'] != session.get("state"):
-            return redirect(url_for("login"))
-        cache = self._load_cache()
-        result = self._build_msal_app(cache).acquire_token_by_authorization_code(
-            request.args['code'],
-            scopes=microsoft_config.SCOPE,
-            redirect_uri=url_for("authorized", _external=True))
-        if "error" in result:
-            return "Login failure: %s, %s" % (
-                result["error"], result.get("error_description"))
-        session["user"] = result.get("id_token_claims")
-        self._save_cache(cache)
-        return "/"
 
     def _load_cache(self):
         cache = msal.SerializableTokenCache()
@@ -304,27 +317,6 @@ class ONENOTE:
             result = cca.acquire_token_silent(scope, account=accounts[0])
             self._save_cache(cache)
             return result
-
-    def get_token(self, scope):
-        token = self._get_token_from_cache(scope)
-        if not token:
-            return redirect(url_for("login"))
-        return token
-
-    def _login(self):
-        session["state"] = str(uuid.uuid4())
-        auth_url = self._build_msal_app().get_authorization_request_url(
-            microsoft_config.SCOPE,
-            state=session["state"],
-            redirect_uri=url_for("authorized", _external=True))
-        # return "<a href='%s'>Login with Microsoft Identity</a>" % auth_url
-        return auth_url
-
-        return render_template( 'login.html', auth_url=auth_url )
-
-    def _logout(self):
-        session.clear()  # Wipe out the user and the token cache from the session
-        return "https://login.microsoftonline.com/common/oauth2/v2.0/logout?post_logout_redirect_uri=" + url_for("login", _external=True)
 
     # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     # GET_JSON

@@ -1,26 +1,27 @@
 {% extends "index.html" %}
 {% block elements %}
-{{result.elements|length}} elements
+{% if 'elements' in result %}
 {% if result.elements|length > 0 %}
     <table id="data" class="table table-striped">
         <thead>
             <tr>
-                <td>Name</td>
-                <td>Date</td>            
-                <td></td>            
+                <td width="70%">Name</td>
+                <td width="15%">Date</td>            
+                <td width="15%"></td>            
             </tr>
         </thead>
         <tbody>
         {% for ele in result.elements %}
             <tr>
-                <td>{{ ele.name }}<br>{{ ele.url }}</td>
+                <td>{{ ele.name }}<span class="badge">{{ ele.source }}</span><br>{{ ele.file }}<br>{{ ele.url }}</td>
                 <td>{{ ele.date }}</td>
                 <td>
                     {% if ele.source == 'onenote' %}
-                    <a class="btn btn-primary" href="/{{ ele.source }}?command=display&id={{ ele.id }}" target="_blank" role="button">Display</a>
-                    <a class="btn btn-secondary" href="/{{ ele.source }}?command=write&id={{ ele.id }}" role="button">Write</a>
+                    <a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?command=display&id={{ ele.id }}" target="_blank" role="button">display</a>
+                    <a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?command=write&id={{ ele.id }}" role="button">write</a>
                     {% elif ele.source == 'notes' %}
-                    <a class="btn btn-secondary" href="/{{ ele.source }}?command=display&id={{ ele.id }}" target="_blank" role="button">Display</a>
+                    <a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?command=display&file={{ ele.file }}" target="_blank" role="button">display</a>
+                    <a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?command=read&file={{ ele.file }}" target="_blank" role="button">get</a>
                     {% endif %}
 
                 </td>
@@ -28,6 +29,7 @@
         {% endfor %}
         </tbody>
     </table>
+    <hr>
     <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.js"></script>
     <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap5.js"></script>
@@ -42,5 +44,6 @@
         });
     });
     </script>
+{% endif %}
 {% endif %}
 {% endblock %}

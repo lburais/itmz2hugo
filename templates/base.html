@@ -16,14 +16,22 @@
         <hr>
         <div valign="middle">
             <a class="btn btn-warning btn-sm" href="/" role="button">Home</a>
-            <a class="btn btn-success btn-sm" href="/login" role="button">Login</a>
-            <a class="btn btn-danger btn-sm" href="/logout" role="button">Logout</a>
-            <a class="btn btn-primary btn-sm" href="/catalog" role="button">Catalog</a>
-            <a class="btn btn-primary btn-sm" href="/content" role="button">Content</a>
+            <div class="btn-group" role="group" aria-label="Microsoft">
+                <a class="btn btn-success btn-sm" href="/login" role="button">Login</a>
+                <a class="btn btn-danger btn-sm" href="/logout" role="button">Logout</a>
+            </div>
+            <a class="btn btn-info btn-sm" href="/catalog" role="button">Catalog</a>
+            <a class="btn btn-info btn-sm" href="/content" role="button">Content</a>
+            <a class="btn btn-primary btn-sm" href="/onenote_to_notes" role="button">Microsft OneNote ⇢ Apple Notes</a>
         </div>
         <hr>
+        {% if result is defined %}
+            {% if 'comment' in result %}
+            <div class="alert alert-info">{{ result.comment }}</div>
+            <hr>
+            {% endif %}
+        {% endif %}
         {% block buttons %}{% endblock %}
-        {% block content %}{% endblock %}
         {% block elements %}{% endblock %}
     </div>
 </body>

@@ -31,14 +31,12 @@ import shutil
 
 from mytools import *
 
-from flask import Flask, render_template, session, request, redirect, url_for
+from flask import Flask, render_template, request, redirect
 from flask_session import Session
-
-import uuid
 
 import platform
 
-import glob
+#import glob
 
 # #####################################################################################################################################################################################################
 # INTERNALS
@@ -50,8 +48,6 @@ output_directory = None
 
 import microsoft_config
 
-import msal
-
 from onenote import ONENOTE
 
 onenote = None
@@ -60,25 +56,20 @@ def get_onenote():
     global onenote, output_directory
 
     if not onenote:
-        onenote = ONENOTE( output_directory=output_directory, app=app )
-
-    return onenote
-
-    if not onenote:
-        token = get_token(microsoft_config.SCOPE)
-    
-        if token:
-            onenote = ONENOTE( token, output_directory )
+        onenote = ONENOTE( output_directory )
 
     return onenote
 
 # APPLE NOTES -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-from notes import NOTES
+import notes as NOTES
 
 notes = None
 
 def get_notes():
+
+    return NOTES.notes
+
     global notes, output_directory
 
     if not notes:
@@ -125,19 +116,20 @@ if __name__ == "__main__":
 
     args.output = os.path.join( args.output )
 
-    if os.path.exists(args.output):
-        try:
-            shutil.rmtree(args.output)
-        except OSError:
-            error = 'Unable to remove the output folder: ' + args.output
-            exit(error)
+    if args.force:
+        if os.path.exists(args.output):
+            try:
+                shutil.rmtree(args.output)
+            except OSError:
+                error = 'Unable to remove the output folder: ' + args.output
+                exit(error)
 
-    if not os.path.exists(args.output):
-        try:
-            os.makedirs(args.output)
-        except OSError:
-            error = 'Unable to create the output folder: ' + args.output
-            exit(error)
+        if not os.path.exists(args.output):
+            try:
+                os.makedirs(args.output)
+            except OSError:
+                error = 'Unable to create the output folder: ' + args.output
+                exit(error)
 
     output_directory = args.output
 
@@ -151,9 +143,6 @@ if __name__ == "__main__":
 
     FOLDER_ITMZ = "/Volumes/library/MindMap"
 
-    elements = empty_elements()
-    catalog = []
-
     # ##############################################################################################################################################
     # Flask
     # ##############################################################################################################################################
@@ -165,7 +154,7 @@ if __name__ == "__main__":
     app.debug = True
 
     # ##############################################################################################################################################
-    # ACTIONS 
+    # ROOT 
     # ##############################################################################################################################################
 
     @app.route("/")
@@ -174,214 +163,76 @@ if __name__ == "__main__":
 
         return render_template('base.html')
 
-        catalog = []
-        elements = []
-
-        onenote = get_onenote()
-        if onenote: 
-            catalog += onenote.catalog()
-            elements += onenote.list()
-
-        notes = get_notes()
-        if notes: 
-            catalog += notes.catalog()
-            elements += notes.list()
-
-        return render_template('content.html', result={ 'catalog': catalog, 'elements': elements })
+    # ##############################################################################################################################################
+    # ACTIONS 
+    # ##############################################################################################################################################
 
     @app.route("/catalog")
-    def catalog():
-        catalog = []
-
-        onenote = get_onenote()
-        if onenote: 
-            catalog += onenote.catalog()
-
-        notes = get_notes()
-        if notes: 
-            catalog += notes.catalog()
-
-        return render_template('index.html', result={ 'catalog': catalog })
-
     @app.route("/content")
-    def content():
-        catalog = []
-        elements = []
-
-        return render_template('base.html')
-
     @app.route("/onenote")
-    def onenote_processing():
-
-        action = request.base_url.split('/')[-1]
-        
-        command = request.args.get('command')
-        notebook = request.args.get('notebook')
-        id = request.args.get('id')
-
-        catalog = []
-        elements = []
-
-        onenote = get_onenote()
-        if onenote: 
-            catalog = onenote.catalog()
-
-            if command in ['parse']:
-                onenote.parse( [ notebook ] if notebook else None )
-
-            elif command in ['list']:
-                elements = onenote.list()
-
-            elif command in ['display']:
-                page = onenote.page( id )
-                if page: 
-                    out_html = page.body
-                    # NEED TO FIX IMAGES AND ATTACHMENTS
-                else:
-                    out_html = '<!DOCTYPE html><html lang="en"><head></head><body!>' + "FILE DOES NOT EXIST"
-                    out_html += "FILE [{}] DOES NOT EXIST".format(file)
-                    out_html += '</body></html>'
-
-                return out_html
-
-            elif command in ['write']:
-                notes = get_notes()
-                if notes:
-                    page = onenote.page( id )
-                    if page:
-                        print( f'write note {page}')
-                        print( f'write note [{page.name}]: [{len(page.body)}] {page.hierarchy} {page.attachments}')
-                        out_html = notes.write( name=page.name, body=page.body, hierarchy=page.hierarchy, attachments=page.attachments )
-
-        return render_template('index.html')
-
     @app.route("/notes")
-    def notes_processing():
-
+    def processing():
         action = request.base_url.split('/')[-1]
-        
-        command = request.args.get('command')
-        account = request.args.get('account')
-        file = request.args.get('file')
+        command = request.args.get('command') 
+        print( f'ACTION [{action.upper()}] COMMAND [{command.upper() if command else ""}] URL [{request.url.upper()}]')
 
         catalog = []
         elements = []
 
-        print( f'command: {command}, account: {account}' )
+        for source in [ 'onenote', 'notes']:
 
-        notes = get_notes()
-        if notes: 
-            catalog = notes.catalog()
+            # PROCESS URL 
 
-            if command in ['parse']:
-                notes.parse( [ account ] if account else None )
-
-            elif command in ['list']:
-                elements = notes.list()
-
-            elif command in ['display']:
-                if os.path.exists( file ): 
-                    with open(file, 'r') as f:
-                        out_html = f.read()
-                        # NEED TO FIX IMAGES AND ATTACHMENTS
+            if source in ['onenote']:
+                onenote = get_onenote()
+                if onenote: 
+                    response = onenote.process_url()
                 else:
-                    out_html = '<!DOCTYPE html><html lang="en"><head></head><body!>' + "FILE DOES NOT EXIST"
-                    out_html += "FILE [{}] DOES NOT EXIST".format(file)
-                    out_html += '</body></html>'
+                    response = {}
+            elif source in ['notes']:
+                response = NOTES.process_url()
+            else:
+                response = {}
 
-                return out_html
+            # PROCESS RESOPNSE 
 
-        return render_template('content.html', result={ 'catalog': catalog, 'elements': elements })
+            if 'catalog' in response:
+                print( f'CATALOG [{len(response["catalog"])}]')
+                catalog += response['catalog']
 
-    @app.route("/ithoughtsx")
-    def ithoughtsx_processing():
-        pass
+            if 'elements' in response:
+                print( f'ELEMENTS [{len(response["elements"])}]')
+                elements += response['elements']
 
-    @app.route("/wordpress")
-    def wordpress_processing():
-        pass
+            if 'note' in response:
+                note = response['note']
+                response['comment']= clean_html( note['body'] )
+
+            if 'body' in response:
+                return clean_html( response['body'] )
+
+        if len(elements) > 0:
+            return render_template('content.html', result={ 'comment': response['comment'] if 'comment' in response else None, 'catalog': catalog, 'elements': elements })
+        elif len(catalog) >0:
+            return render_template('index.html', result={ 'comment': response['comment'] if 'comment' in response else None, 'catalog': catalog })
+        else:
+            return render_template('base.html', result={ 'comment': response['comment'] if 'comment' in response else None })
 
     # ##############################################################################################################################################
-    # TOKEN CACHING AND AUTH FUNCTIONS
+    # MICROSOFT LOGIN 
     # ##############################################################################################################################################
 
-    # Its absolute URL must match your app's redirect_uri set in AAD
     @app.route("/getAToken")
-    def authorized():
-
-        onenote = get_onenote()
-        return redirect( onenote.get(request.base_url) )
-
-        if request.args['state'] != session.get("state"):
-            return redirect(url_for("login"))
-        cache = _load_cache()
-        result = _build_msal_app(cache).acquire_token_by_authorization_code(
-            request.args['code'],
-            scopes=microsoft_config.SCOPE,
-            redirect_uri=url_for("authorized", _external=True))
-        if "error" in result:
-            return "Login failure: %s, %s" % (
-                result["error"], result.get("error_description"))
-        session["user"] = result.get("id_token_claims")
-        _save_cache(cache)
-        return redirect("/")
-
-    def _load_cache():
-        cache = msal.SerializableTokenCache()
-        if session.get("token_cache"):
-            cache.deserialize(session["token_cache"])
-        return cache
-
-    def _save_cache(cache):
-        if cache.has_state_changed:
-            session["token_cache"] = cache.serialize()
-
-    def _build_msal_app(cache=None, authority=None):
-        return msal.ConfidentialClientApplication(
-            microsoft_config.CLIENT_ID, authority=authority or microsoft_config.AUTHORITY,
-            client_credential=microsoft_config.SECRET_VALUE, token_cache=cache)
-
-    def _get_token_from_cache(scope=None):
-        cache = _load_cache()  # This web app maintains one cache per session
-        cca = _build_msal_app(cache)
-        accounts = cca.get_accounts()
-        if accounts:  # So all accounts belong to the current signed-in user
-            result = cca.acquire_token_silent(scope, account=accounts[0])
-            _save_cache(cache)
-            return result
-
-    def get_token(scope):
-        token = _get_token_from_cache(scope)
-        if not token:
-            return redirect(url_for("login"))
-        return token
-
-    # ##############################################################################################################################################
-    # LOGIN/LOGOUT FUNCTIONS
-    # ##############################################################################################################################################
-
     @app.route("/login")
-    def login():
-        onenote = get_onenote()
-        return render_template( 'login.html', auth_url=onenote.get(request.base_url) )
-
-        session["state"] = str(uuid.uuid4())
-        auth_url = _build_msal_app().get_authorization_request_url(
-            microsoft_config.SCOPE,
-            state=session["state"],
-            redirect_uri=url_for("authorized", _external=True))
-        # return "<a href='%s'>Login with Microsoft Identity</a>" % auth_url
-        return render_template( 'login.html', auth_url=auth_url )
-
     @app.route("/logout")
-    def logout():
-        onenote = get_onenote()
-        return redirect( onenote.get(request.base_url) )
+    def microsoft():
+        action = request.base_url.split('/')[-1]
 
-        session.clear()  # Wipe out the user and the token cache from the session
-        return redirect(  # Also need to log out from the Microsoft Identity platform
-            "https://login.microsoftonline.com/common/oauth2/v2.0/logout"
-            "?post_logout_redirect_uri=" + url_for("login", _external=True))
+        onenote = get_onenote()
+        if action in ['login']:
+            return render_template( 'login.html', auth_url=onenote.get(request.base_url) )
+        else:
+            return redirect( onenote.get(request.base_url) )
 
     # ##############################################################################################################################################
     # SERVE

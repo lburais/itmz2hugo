@@ -13,6 +13,7 @@ import xlsxwriter
 # pip3 install pandas
 import pandas as pd
 
+
 # #################################################################################################################################
 # GLOBAL VARIABLES
 # #################################################################################################################################
@@ -27,26 +28,26 @@ timestamp = None
 # ELEMENT
 # #################################################################################################################################
 
-ELEMENT_COLUMNS=[
-    'source',       # onenote | itmz | notes
-    'what',
-    'type',
-    'id',           # unique identifier
-    'number',
-    'title',
-    'created',
-    'modified',
-    'authors',
-    'slug',
-    'top',
-    'parent',
-    'childs',
-    'publish',      # should be published: True | False
-    'body'
-]
+# ELEMENT_COLUMNS=[
+#     'source',       # onenote | itmz | notes
+#     'what',
+#     'type',
+#     'id',           # unique identifier
+#     'number',
+#     'title',
+#     'created',
+#     'modified',
+#     'authors',
+#     'slug',
+#     'top',
+#     'parent',
+#     'childs',
+#     'publish',      # should be published: True | False
+#     'body'
+# ]
 
-def empty_elements():
-    return pd.DataFrame( columns = ELEMENT_COLUMNS )
+# def empty_elements():
+#     return pd.DataFrame( columns = ELEMENT_COLUMNS )
 
 # #################################################################################################################################
 # INTERNAL FUNCTIONS
@@ -131,3 +132,46 @@ def save_excel( directory, elements, type=None ):
        
     except:
         myprint( "Something went wrong with file {}.".format(out_file), prefix="..." )            
+
+# #####################################################################################################################################################################################################
+# CLEAN_HTML
+# #####################################################################################################################################################################################################
+
+def clean_html( html ):
+    from bs4 import BeautifulSoup
+    
+    soup = BeautifulSoup( html, features="html.parser" )
+
+    # clean tags
+
+    blacklist=['style', 'lang', 'data-absolute-enabled', 'span', 'p']
+    whitelist=['href', 'alt']
+
+    for tag in soup.findAll(True):
+        for attr in [attr for attr in tag.attrs if( attr in blacklist and attr not in whitelist)]:
+            del tag[attr]
+        if tag.name in blacklist and tag.name not in whitelist:
+            tag.unwrap()
+
+    # inline images
+
+    def guess_type(filepath):
+        try:
+            import magic  # python-magic
+            return magic.from_file(filepath, mime=True)
+        except ImportError:
+            import mimetypes
+            return mimetypes.guess_type(filepath)[0]
+
+    def file_to_base64(filepath):
+        import base64
+        with open(filepath, 'rb') as f:
+            encoded_str = base64.b64encode(f.read())
+        return encoded_str.decode('utf-8')
+    
+    for img in soup.find_all('img-age'):
+        img_path = os.path.join(basepath, img.attrs['src'])
+        mimetype = guess_type(img_path)
+        img.attrs['src'] = "data:%s;base64,%s" % (mimetype, file_to_base64(img_path))
+
+    return str(soup)

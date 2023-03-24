@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block buttons %}
+{% if 'catalog' in result %}
+{% if result.catalog|length > 0 %}
   <div>
     {% for cat in result.catalog %}
       {% if cat.source == 'onenote' %}
@@ -12,4 +14,6 @@
     {% endfor %}
   </div>
   <hr>
+{% endif %}
+{% endif %}
 {% endblock %}
