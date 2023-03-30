@@ -2,17 +2,17 @@
 <html lang="en">
 
 <head>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.1/dist/css/bootstrap.min.css" rel="stylesheet" 
-        integrity="sha384-+0n0xVW2eSR5OomGNYDnhzAbDsOXxcvSN1TPprVMTNDbiYZCxYbOOl7+AMvyTG2x" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet" 
+        integrity="sha384-rbsA2VBKQhggwzxH7pPCaAqO46MgnOM80zW1RWuH61DGLwZJEdK2Kadq2F9CUG65" crossorigin="anonymous">
 
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap5.css">
     
-    <title>Jamstack{% block title %}{% endblock %}</title>
+    <title>mind</title>
 </head>
 
 <body>
     <div class="container">
-        <h1>{% block mainheader %}mind{% endblock %}</h1>
+        <h1>mind</h1>
         <hr>
         <div valign="middle">
             <a class="btn btn-warning btn-sm" href="/" role="button">Home</a>
@@ -23,17 +23,92 @@
             <a class="btn btn-info btn-sm" href="/catalog" role="button">Catalog</a>
             <a class="btn btn-info btn-sm" href="/content" role="button">Content</a>
             <a class="btn btn-primary btn-sm" href="/onenote_to_notes" role="button">Microsft OneNote ⇢ Apple Notes</a>
+            <a class="btn btn-alert btn-sm" href="/files" role="button">Files</a>
         </div>
         <hr>
         {% if result is defined %}
             {% if 'comment' in result %}
-            <div class="alert alert-info">{{ result.comment }}</div>
-            <hr>
+                {% if result.comment != 'None' %}
+                <div class="alert alert-info">{{ result.comment }}</div>
+                <hr>
+                {% endif %}
             {% endif %}
         {% endif %}
-        {% block buttons %}{% endblock %}
-        {% block elements %}{% endblock %}
+
+        {% if 'catalog' in result %}
+            {% if result.catalog|length > 0 %}
+                <div>
+                    {% for cat in result.catalog %}
+                    {% if cat.source == 'onenote' %}
+                        <a class="btn btn-primary btn-sm" href="/{{ cat.source }}?{{ cat.url }}" role="button">{{ cat.name }}</a>
+                    {% elif cat.source == 'notes' %}
+                        <a class="btn btn-secondary btn-sm" href="/{{ cat.source }}?command={{ cat.url }}" role="button">{{ cat.name }}</a>
+                    {% elif cat.source == 'itmz' %}
+                        <a class="btn btn-info btn-sm" href="/{{ cat.source }}?{{ cat.url }}" role="button">{{ cat.name }}</a>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                <hr>
+            {% endif %}
+        {% endif %}
+        
+        {% if 'elements' in result %}
+            {% if result.elements|length > 0 %}
+                <table id="data" class="table table-striped">
+                    <thead>
+                        <tr>
+                            <td width="80%">Name</td>
+                            <td width="15%">Date</td>            
+                            <td width="5%"></td>            
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for ele in result.elements %}
+                        <tr>
+                            <td>
+                                <p>
+                                    <a class="btn btn-primary" data-bs-toggle="collapse" href="#collapse{{ loop.index }}" role="button" aria-expanded="false" aria-controls="collapse{{ loop.index }}">
+                                        {{ ele.name }}
+                                    </a>
+                                </p>
+                                <div class="collapse" id="collapse{{ loop.index }}">
+                                    <div class="card card-body">
+                                        {% if 'body' in ele %}
+                                        <code>{{ ele.body }}</code>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </td>
+                            <td>{{ ele.date }}</td>
+                            <td><a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?id={{ ele.id }}" target="_blank" role="button">👓</a></td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                <hr>
+            {% endif %}
+        {% endif %}
+
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-kenU1KFdBIe4zVF0s0G1M5b4hcpxyD9F7jL+jjXkk+Q2h455rYXK/7HAuoJl+0I4" crossorigin="anonymous"></script>
+
+    <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.js"></script>
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap5.js"></script>
+
+    <script>
+        $(document).ready(function () {
+            $('#data').DataTable({
+            columns: [
+                {orderable: true, searchable: true},
+                {orderable: true, searchable: false},
+                {orderable: false, searchable: false},
+            ],
+            });
+        });
+    </script>
+
 </body>
 
 </html>

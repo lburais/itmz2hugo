@@ -8,16 +8,14 @@ Filename:     mind.py
 Configure:
   mkdir /Volumes/library
   mount_afp -i afp://Pharaoh.local/library /Volumes/library
-  cd /Volumes/development/jamstack
+  cd /Volumes/development/mind
   python3 -m venv venv
   pip3 install requests pandas bs4 tabulate xlsxwriter openpyxl  markdown flask flask_session msal pelican
 
 Run:
-  cd /Volumes/development/jamstack
+  cd /Volumes/development/mind
   source venv/bin/activate
-  python3 jamstack.py --output site --nikola --html
-  python3 jamstack.py --output site --nikola --https
-  python3 jamstack.py
+  python3 mind.py
 
 Graph Explorer:
   https://developer.microsoft.com/fr-fr/graph/graph-explorer
@@ -26,13 +24,13 @@ Graph Explorer:
 
 import argparse
 import os
-import sys
-import shutil
 
 from mytools import *
 
-from flask import Flask, render_template, request, redirect
+from flask import Flask, render_template, request, redirect, url_for, send_file
 from flask_session import Session
+
+from bs4 import BeautifulSoup
 
 import platform
 
@@ -42,42 +40,19 @@ import platform
 # INTERNALS
 # #####################################################################################################################################################################################################
 
-output_directory = None
-
 # MICROSOFT ONENOTE -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 import microsoft_config
 
-from onenote import ONENOTE
-
-onenote = None
-
-def get_onenote():
-    global onenote, output_directory
-
-    if not onenote:
-        onenote = ONENOTE( output_directory )
-
-    return onenote
+import onenote as ONENOTE
 
 # APPLE NOTES -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 import notes as NOTES
 
-notes = None
-
-def get_notes():
-
-    return NOTES.notes
-
-    global notes, output_directory
-
-    if not notes:
-        notes = NOTES( output_directory )
-
-    return notes
-
 # ITHOUGHSX -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+import itmz as ITMZ
 
 # WORDPRESS -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -97,57 +72,28 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '-o', '--output', dest='output', default='output',
-        help='Output path')
-
-    parser.add_argument(
-        '--force', action='store_true', dest='force',
-        help='Force refresh')
-
-    parser.add_argument(
         '--https', action='store_true', dest='https',
         help='HTTPS server')
 
     args = parser.parse_args()
 
     # ##############################################################################################################################################
-    # output folder
-    # ##############################################################################################################################################
-
-    args.output = os.path.join( args.output )
-
-    if args.force:
-        if os.path.exists(args.output):
-            try:
-                shutil.rmtree(args.output)
-            except OSError:
-                error = 'Unable to remove the output folder: ' + args.output
-                exit(error)
-
-        if not os.path.exists(args.output):
-            try:
-                os.makedirs(args.output)
-            except OSError:
-                error = 'Unable to create the output folder: ' + args.output
-                exit(error)
-
-    output_directory = args.output
-
-    # ##############################################################################################################################################
     # Variable
     # ##############################################################################################################################################
 
     FOLDER = os.path.dirname(__file__)
-    FOLDER_STATIC = os.path.join( FOLDER, 'static')
-    FOLDER_SITE = os.path.join( FOLDER, 'site')
+    FOLDER_OUTPUT = os.path.join( FOLDER, 'output')
 
-    FOLDER_ITMZ = "/Volumes/library/MindMap"
+    # FOLDER_STATIC = os.path.join( FOLDER, 'static')
+    # FOLDER_SITE = os.path.join( FOLDER, 'site')
+
+    # FOLDER_ITMZ = "/Volumes/library/MindMap"
 
     # ##############################################################################################################################################
     # Flask
     # ##############################################################################################################################################
 
-    app = Flask(__name__)
+    app = Flask(__name__, static_url_path='/output')
 
     app.config.from_object(microsoft_config)
     Session(app)
@@ -167,72 +113,114 @@ if __name__ == "__main__":
     # ACTIONS 
     # ##############################################################################################################################################
 
+    @app.route('/files/')
+    def files():
+        filenames = []
+        for root, subdirs, files in os.walk(FOLDER_OUTPUT):
+            for file in files:
+                filenames += [ os.path.join( os.path.relpath(root, start=FOLDER_OUTPUT), file) ]
+        return render_template('files.html', files=filenames)
+
+    @app.route('/files/<path:filename>')
+    def log(filename):
+        print( f'filename: {filename}')
+        x=1/0
+        return send_file( filename )
+
     @app.route("/catalog")
     @app.route("/content")
     @app.route("/onenote")
     @app.route("/notes")
+    @app.route("/itmz")
     def processing():
         action = request.base_url.split('/')[-1]
         command = request.args.get('command') 
         print( f'ACTION [{action.upper()}] COMMAND [{command.upper() if command else ""}] URL [{request.url.upper()}]')
 
-        catalog = []
-        elements = []
+        results = {}
 
-        for source in [ 'onenote', 'notes']:
+        for source in [ 'onenote', 'itmz' ]: #[ 'onenote', 'notes']:
 
             # PROCESS URL 
 
             if source in ['onenote']:
-                onenote = get_onenote()
-                if onenote: 
-                    response = onenote.process_url()
-                else:
-                    response = {}
+                response = ONENOTE.process_url()
             elif source in ['notes']:
                 response = NOTES.process_url()
+            elif source in ['itmz']:
+                response = ITMZ.process_url()
             else:
                 response = {}
 
-            # PROCESS RESOPNSE 
+            # PROCESS RESPONSE 
 
             if 'catalog' in response:
-                print( f'CATALOG [{len(response["catalog"])}]')
-                catalog += response['catalog']
+                print( f'.. CATALOG [{len(response["catalog"])}]')
+                if 'catalog' not in results: results['catalog'] = []
+                results['catalog'] += response['catalog']
 
             if 'elements' in response:
-                print( f'ELEMENTS [{len(response["elements"])}]')
-                elements += response['elements']
+                print( f'.. ELEMENTS [{len(response["elements"])}]')
+                if 'elements' not in results: results['elements'] = []
+                results['elements'] += response['elements']
+
+            if 'comments' in response:
+                print( f'.. ELEMENTS [{len(response["comments"])}]')
+                results['comments'] = response['comments']
 
             if 'note' in response:
+                print( '.. NOTE')
                 note = response['note']
-                response['comment']= clean_html( note['body'] )
 
-            if 'body' in response:
-                return clean_html( response['body'] )
+                if 'html' in note:
+                    print( '.. BODY')
+                    # ADD {{ url_for('static', filename = 'subfolder/some_image.jpg') }} FOR FLASK / IMAGES AND ATTACHMENTS
+                    # <img src="images/some_image.jpg" --> <img src=url_for('static', filename = 'subfolder/images/some_image.jpg')
+                    # <object data="attachments/some_attachment.pdf" --> <object data=url_for('static', filename = 'attachments/some_attachment.pdf')
+                    rel_folder = os.path.relpath(note['folder'], start=FOLDER_OUTPUT)
+                    soup = BeautifulSoup( note['html'], features="html.parser" )
 
-        if len(elements) > 0:
-            return render_template('content.html', result={ 'comment': response['comment'] if 'comment' in response else None, 'catalog': catalog, 'elements': elements })
-        elif len(catalog) >0:
-            return render_template('index.html', result={ 'comment': response['comment'] if 'comment' in response else None, 'catalog': catalog })
-        else:
-            return render_template('base.html', result={ 'comment': response['comment'] if 'comment' in response else None })
+                    for image in soup.findAll("img"):
+                        image['src'] = url_for('static', filename = os.path.join(rel_folder, image['src']) )
+
+                    for attachment in soup.findAll("object"):
+                        attachment['data'] = url_for('static', filename = os.path.join(rel_folder, attachment['data']) )
+
+                    # prefix with a link to the page
+
+                    href = soup.new_tag('a')
+                    href.attrs['href'] = note['url'] if 'url' in note else '#'
+                    href.attrs['target'] = "_blank"
+                    href.string = ">> " + href.attrs['href'] + " <<"
+                    soup.body.insert(1, href)
+
+                    return str(soup)
+
+            # WRITE ONENOTE TO NOTES
+             
+            if source in ['onenote'] and command in ['write'] and 'note' in response:
+                print( f'name {response["note"]["name"]} folder {response["note"]["folder"]}')
+                response['comment'] = NOTES.write( response['note']['name'], response['note']['body'], response['note']['folder'], response['note']['hierarchy'], response['note']['attachments'] )
+
+        return render_template('base.html', result=results)
 
     # ##############################################################################################################################################
     # MICROSOFT LOGIN 
     # ##############################################################################################################################################
 
     @app.route("/getAToken")
-    @app.route("/login")
-    @app.route("/logout")
-    def microsoft():
-        action = request.base_url.split('/')[-1]
+    def microsoft_token():
+        return redirect( ONENOTE.process_url() )
 
-        onenote = get_onenote()
-        if action in ['login']:
-            return render_template( 'login.html', auth_url=onenote.get(request.base_url) )
-        else:
-            return redirect( onenote.get(request.base_url) )
+    @app.route("/login")
+    def microsoft_login():
+        auth_url = ONENOTE.process_url()
+        #return "<a href='%s'>Login with Microsoft Identity</a>" % auth_url
+        return render_template( 'login.html', auth_url=auth_url )
+
+    @app.route("/logout")
+    def microsoft_logout():
+        return redirect( ONENOTE.process_url() )
 
     # ##############################################################################################################################################
     # SERVE

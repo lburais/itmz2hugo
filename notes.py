@@ -37,19 +37,9 @@ from macnotesapp import NotesApp
 # INTERNALS
 # #####################################################################################################################################################################################################
 
-OK = True
-KO = False
-
 notesapp = None
 
 output_directory = os.path.join( os.path.dirname(__file__), 'output', 'notes' )
-
-# -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# INDENT_PRINT
-# -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-def _indent_print(depth, text):
-    print('  ' * depth + text)
 
 # #####################################################################################################################################################################################################
 # INIT
@@ -67,7 +57,7 @@ def init( output=None ):
 # PROCESS_URL
 # #####################################################################################################################################################################################################
 
-def process_url( force=False ):
+def process_url():
     global notesapp, output_directory
 
     try:
@@ -94,7 +84,7 @@ def process_url( force=False ):
             # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
             # requires to be online
 
-            if command in ['catalog']:
+            if command in ['parse', 'catalog']:
 
                 if not notesapp: notesapp = NotesApp()
 
@@ -109,7 +99,8 @@ def process_url( force=False ):
                 for acc in accounts:
                     catalog += [ { 'source': 'notes', 'object': 'account', 'name': acc, 'url': 'parse&account={}'.format(acc) } ]
                 
-                return { 'catalog': catalog }
+                if command in ['catalog']:
+                   return { 'catalog': catalog }
 
             # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
             # PARSE
@@ -128,8 +119,6 @@ def process_url( force=False ):
             # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
             find = request.args.get("file")
-
-            print( f'file: {find}')
 
             base = len(os.path.normpath(output_directory).split(os.sep))
 
@@ -151,12 +140,8 @@ def process_url( force=False ):
                         element['date'] = dt.utcfromtimestamp(os.path.getmtime(element['file']))
                         element['command'] = [{'name': 'Display', 'url': 'display&file={}'.format(element['file'])}]
 
-                        print( f'file: {find} element {element["file"]}')
                         if (find == None) or (element['file'] == find):
-                            print( '..added')
                             elements += [ element ]
-
-            print( f'elements [{len(elements)}]')
 
             if command in ['content']:
 
@@ -222,17 +207,16 @@ def process_url( force=False ):
 # WRITE
 # #####################################################################################################################################################################################################
 
-def write( name, body, hierarchy=[], attachments=[], force=False ):
+def write( name, body, folder=None, hierarchy=[], attachments=[] ):
     global notesapp
 
     if not notesapp: notesapp = NotesApp()
                     
-    body = clean_html( body )
+    body = clean_html( body, folder )
 
     account = notesapp.account()
     new_note = account.make_note( name=name, 
-                                    body=body, 
-                                    folder=None)
+                                  body=body, 
+                                  folder=None)
 
-    print( body )
-    return { 'comment': body }
+    return new_note.body

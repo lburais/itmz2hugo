@@ -5,45 +5,35 @@
     <table id="data" class="table table-striped">
         <thead>
             <tr>
-                <td width="70%">Name</td>
+                <td width="80%">Name</td>
                 <td width="15%">Date</td>            
-                <td width="15%"></td>            
+                <td width="5%"></td>            
             </tr>
         </thead>
         <tbody>
         {% for ele in result.elements %}
             <tr>
-                <td>{{ ele.name }}<span class="badge">{{ ele.source }}</span><br>{{ ele.file }}<br>{{ ele.url }}</td>
-                <td>{{ ele.date }}</td>
                 <td>
-                    {% if ele.source == 'onenote' %}
-                    <a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?command=display&id={{ ele.id }}" target="_blank" role="button">display</a>
-                    <a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?command=write&id={{ ele.id }}" role="button">write</a>
-                    {% elif ele.source == 'notes' %}
-                    <a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?command=display&file={{ ele.file }}" target="_blank" role="button">display</a>
-                    <a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?command=read&file={{ ele.file }}" target="_blank" role="button">get</a>
-                    {% endif %}
-
+                    <p>
+                        <a class="btn btn-primary" data-bs-toggle="collapse" href="#collapse{{ ele.id }}" role="button" aria-expanded="false" aria-controls="collapse{{ ele.id }}">
+                            {{ ele.name }}
+                        </a>
+                    </p>
+                    <div class="collapse" id="collapse{{ ele.id }}">
+                        <div class="card card-body">
+                            {% if 'body' in ele %}
+                            <span>{{ ele.body }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
                 </td>
+                <td>{{ ele.date }}</td>
+                <td><a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?id={{ ele.id }}" target="_blank" role="button">👓</a></td>
             </tr>
         {% endfor %}
         </tbody>
     </table>
     <hr>
-    <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap5.js"></script>
-    <script>
-    $(document).ready(function () {
-        $('#data').DataTable({
-        columns: [
-            {orderable: true, searchable: true},
-            {orderable: true, searchable: false},
-            {orderable: false, searchable: false},
-        ],
-        });
-    });
-    </script>
 {% endif %}
 {% endif %}
 {% endblock %}

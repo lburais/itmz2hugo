@@ -1,14 +1,9 @@
 import os
 import re
-import pprint
 import glob
 
 from tabulate import tabulate
 from datetime import datetime as dt
-
-# pip3 install XlsxWriter
-# pip3 install openpyxl
-import xlsxwriter
 
 # pip3 install pandas
 import pandas as pd
@@ -122,7 +117,6 @@ def save_excel( directory, elements, type=None ):
             os.makedirs(out_dir)
 
         writer = pd.ExcelWriter(out_file, engine='xlsxwriter')
-        workbook  = writer.book
         elements.to_excel( writer, sheet_name='Elements', index=False, na_rep='')
         writer.close()
 
@@ -137,14 +131,14 @@ def save_excel( directory, elements, type=None ):
 # CLEAN_HTML
 # #####################################################################################################################################################################################################
 
-def clean_html( html ):
+def clean_html( html, folder=None ):
     from bs4 import BeautifulSoup
     
     soup = BeautifulSoup( html, features="html.parser" )
 
     # clean tags
 
-    blacklist=['style', 'lang', 'data-absolute-enabled', 'span', 'p']
+    blacklist=['style', 'lang', 'data-absolute-enabled', 'span', 'p',  'data-src-type', 'data-render-original-src', 'data-index', 'data-options', 'data-attachment', 'data-id', 'height', 'width']
     whitelist=['href', 'alt']
 
     for tag in soup.findAll(True):
@@ -168,10 +162,14 @@ def clean_html( html ):
         with open(filepath, 'rb') as f:
             encoded_str = base64.b64encode(f.read())
         return encoded_str.decode('utf-8')
-    
-    for img in soup.find_all('img-age'):
-        img_path = os.path.join(basepath, img.attrs['src'])
-        mimetype = guess_type(img_path)
-        img.attrs['src'] = "data:%s;base64,%s" % (mimetype, file_to_base64(img_path))
+
+    if folder:   
+        print( f'folder {folder}') 
+        for img in soup.find_all('imgxx'):
+            img_path = os.path.join(folder, img.attrs['src'])
+            if os.path.exists( img_path ):
+                print( f'transform image {img_path}')
+                mimetype = guess_type(img_path)
+                img.attrs['src'] = "data:%s;base64,%s" % (mimetype, file_to_base64(img_path))
 
     return str(soup)

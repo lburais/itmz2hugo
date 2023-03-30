@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Logfiles</title>
+  </head>
+  <body>
+    <ul>
+    {% for file in files %}
+        <li><a href="files/{{ url_for('static', filename=file) }}">{{ file }}</a></li>
+    {% endfor %}
+    </ul>
+
+</body>
+</html>
