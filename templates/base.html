@@ -39,13 +39,18 @@
             {% if result.catalog|length > 0 %}
                 <div>
                     {% for cat in result.catalog %}
-                    {% if cat.source == 'onenote' %}
-                        <a class="btn btn-primary btn-sm" href="/{{ cat.source }}?{{ cat.url }}" role="button">{{ cat.name }}</a>
-                    {% elif cat.source == 'notes' %}
-                        <a class="btn btn-secondary btn-sm" href="/{{ cat.source }}?command={{ cat.url }}" role="button">{{ cat.name }}</a>
-                    {% elif cat.source == 'itmz' %}
-                        <a class="btn btn-info btn-sm" href="/{{ cat.source }}?{{ cat.url }}" role="button">{{ cat.name }}</a>
-                    {% endif %}
+                        {% if cat.source == 'onenote' %}
+                            {% set button = "btn-primary" %}
+                        {% elif cat.source == 'itmz' %}
+                            {% set button = "btn-secondary" %}
+                        {% elif cat.source == 'wordpress' %}
+                            {% set button = "btn-info" %}
+                        {% elif cat.source == 'notes' %}
+                            {% set button = "btn-dark" %}
+                        {% else %}
+                            {% set button = "btn-warning" %}
+                        {% endif %}
+                        <a class="btn {{ button }} btn-sm" href="/{{ cat.source }}?{{ cat.url }}" role="button">{{ cat.name }}</a>
                     {% endfor %}
                 </div>
                 <hr>
@@ -64,10 +69,21 @@
                     </thead>
                     <tbody>
                     {% for ele in result.elements %}
+                        {% if ele.source == 'onenote' %}
+                            {% set button = "btn-primary" %}
+                        {% elif ele.source == 'itmz' %}
+                            {% set button = "btn-secondary" %}
+                        {% elif ele.source == 'wordpress' %}
+                            {% set button = "btn-info" %}
+                        {% elif ele.source == 'notes' %}
+                            {% set button = "btn-dark" %}
+                        {% else %}
+                            {% set button = "btn-warning" %}
+                        {% endif %}
                         <tr>
                             <td>
                                 <p>
-                                    <a class="btn btn-primary" data-bs-toggle="collapse" href="#collapse{{ loop.index }}" role="button" aria-expanded="false" aria-controls="collapse{{ loop.index }}">
+                                    <a class="btn {{ button }}" data-bs-toggle="collapse" href="#collapse{{ loop.index }}" role="button" aria-expanded="false" aria-controls="collapse{{ loop.index }}">
                                         {{ ele.name }}
                                     </a>
                                 </p>
@@ -80,7 +96,7 @@
                                 </div>
                             </td>
                             <td>{{ ele.date }}</td>
-                            <td><a class="btn btn-secondary btn-sm" href="/{{ ele.source }}?id={{ ele.id }}" target="_blank" role="button">👓</a></td>
+                            <td><a class="btn {{ button }} btn-sm" href="/{{ ele.source }}?id={{ ele.id }}" target="_blank" role="button">👓</a></td>
                         </tr>
                     {% endfor %}
                     </tbody>

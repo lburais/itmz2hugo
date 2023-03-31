@@ -164,6 +164,17 @@ if __name__ == "__main__":
                 if 'elements' not in results: results['elements'] = []
                 results['elements'] += response['elements']
 
+                all_attr = {}
+                for element in response['elements']:
+                    if 'html' in element:
+                        for tag in BeautifulSoup(element['html'], 'html.parser').find_all():
+                            if tag.name in all_attr:
+                                all_attr[tag.name] += tag.attrs.keys()
+                            else:
+                                all_attr[tag.name] = tag.attrs.keys()
+                            all_attr[tag.name] = list(dict.fromkeys( all_attr[tag.name] ))
+                print( f'TAGS and ATTRIBUTES: {all_attr}')
+
             if 'comments' in response:
                 print( f'.. ELEMENTS [{len(response["comments"])}]')
                 results['comments'] = response['comments']

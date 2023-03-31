@@ -57,12 +57,11 @@
 #               └── [attachment3]
 # #####################################################################################################################################################################################################
 
-import json
 import re
 import os
 import sys
 import pathlib
-import requests
+import shutil
 
 from datetime import datetime as dt
 
@@ -70,13 +69,13 @@ from bs4 import BeautifulSoup
 
 from flask import request
 
-from mytools import *
+#from mytools import *
 
 import xml.etree.ElementTree as ET
 import zipfile
 import markdown
-from markdownify import markdownify
 from tabulate import tabulate
+from urllib.parse import urlparse
 
 # #####################################################################################################################################################################################################
 # INTERNALS
@@ -136,7 +135,7 @@ def process_url():
         # CATALOG
         # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-        if action in ['parse', 'catalog']:
+        if action in ['parse', 'catalog', 'itmz']:
 
             if os.path.isdir( itmz_source ):
                 for root, dirs, filenames in os.walk( itmz_source, topdown=True ):
@@ -146,12 +145,13 @@ def process_url():
 
             # add command to parse all notebooks        
             if len(catalog) > 0:
-                catalog.insert( 0, [ { 'source': 'itmz', 'object': 'file', 'name': ALL_MAPS, 'url': 'notebook={}'.format(ALL_MAPS) } ] )
+                catalog.insert( 0, { 'source': 'itmz', 'object': 'file', 'name': ALL_MAPS, 'url': 'file={}'.format( ALL_MAPS ) } )
 
         # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
         # ITMZ
         #   ?FILE=
         # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        # parse file aka. create local structure
 
         if action in ['parse', 'itmz']:
 
@@ -162,15 +162,18 @@ def process_url():
             if itmz_files:
                 itmz_files = [ itmz_files ]
             else:
-                itmz_files = [ cat.file for cat in catalog ]
+                itmz_files = []
+                for cat in catalog:
+                    if 'file' in cat: itmz_files += [ cat['file'] ]
             
             for itmz_file in itmz_files:
-                _download_itmz( output_directory, itmz_file )
+                _download_itmz( itmz_file )
 
         # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
         # ITMZ
         #   ?ID= 
         # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        # list local content
 
         if action in ['content', 'itmz']:
 
@@ -178,26 +181,10 @@ def process_url():
 
             elements = list_notes( output_directory, identifier )
 
-            all_attr = {}
-
-            for element in elements:
-                if 'html' in element:
-                    print( f'..{element["file"]}' )
-                    for tag in BeautifulSoup(element['html'], 'html.parser').find_all():
-                        if tag.name in all_attr:
-                            all_attr[tag.name] += tag.attrs.keys()
-                        else:
-                            all_attr[tag.name] = tag.attrs.keys()
-                        all_attr[tag.name] = list(dict.fromkeys( all_attr[tag.name] ))
-
-            print( f'TAGS and ATTRIBUTES: {all_attr}')
-
             if identifier:
                 if len(elements) == 1:
 
                     note = get_note( elements[0] )
-
-                    print( f'NAME {note["name"]} FOLDER {note["folder"]} HIERARCHY {note["hierarchy"]} ATTACHMENTS {note["attachments"]}\n{note["html"]}')
 
                     comments = note['html']
                 
@@ -243,7 +230,7 @@ def list_notes( dir, identifier ):
 
                 if file == 'main.html':
                     element = { 
-                        'object': 'page',
+                        'object': 'topic',
                         'source': 'itmz',
                         'folder': root,
                         'file': os.path.join(root, 'main.html'),
@@ -251,7 +238,7 @@ def list_notes( dir, identifier ):
                         'hierarchy': os.path.relpath(root, start=output_directory).split(os.sep),
                     }
                     element['hierarchy'].pop()
-                    element['hierarchy'].insert(0, 'onenote')
+                    element['hierarchy'].insert(0, 'itmz')
 
                     element['url'] = pathlib.Path(element['file']).as_uri()
 
@@ -261,17 +248,17 @@ def list_notes( dir, identifier ):
                     element['html'] = f_content
 
                     # <meta mind="" content="">
-                    # mind = ['id', 'self', 'title', 'contentUrl', 'level', 'order', 'createdDateTime', 'lastModifiedDateTime']
+                    # mind = ['id': 'uuid', 'name': 'title', 'date': 'modified']
                     
                     soup = BeautifulSoup( f_content, features="html.parser" )
 
                     tag = soup.find("meta", {"mind":"title"})
                     element['name'] = tag["content"] if tag else None
 
-                    tag = soup.find("meta", {"mind":"lastModifiedDateTime"})
+                    tag = soup.find("meta", {"mind":"modified"})
                     element['date'] = tag["content"] if tag else None
 
-                    tag = soup.find("meta", {"mind":"id"})
+                    tag = soup.find("meta", {"mind":"uuid"})
                     element['id'] = tag["content"] if tag else None
 
                     element['body'] = soup.body.prettify()
@@ -329,7 +316,8 @@ def get_note( element ):
 # DOWNLOAD_ITMZ
 # #####################################################################################################################################################################################################
 
-def _download_itmz(output_directory, itmz_file=None):
+def _download_itmz(itmz_file, force=True):
+    global output_directory
 
     try:
         print( f'PARSE {itmz_file.upper()} FILE' )
@@ -338,177 +326,147 @@ def _download_itmz(output_directory, itmz_file=None):
         # read ITMZ file
         # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-        ithoughts = zipfile.ZipFile( itmz_file, 'r')
-        xmldata = ithoughts.read('mapdata.xml')
-        elements = ET.fromstring(xmldata)
+        if os.path.exists( itmz_file ):
+            ithoughts = zipfile.ZipFile( itmz_file, 'r')
+            xmldata = ithoughts.read('mapdata.xml')
+            elements = ET.fromstring(xmldata)
+        else:
+            print( f'INVALID FILE {itmz_file.upper()}')
+            return
 
         # ---------------------------------------------------------------------------------------------------------------------------------------
-        # get elements
+        # set structure
+        # ---------------------------------------------------------------------------------------------------------------------------------------
+
+        out_dir = os.path.join(output_directory, '[itmz] ' + os.path.splitext(os.path.basename(itmz_file))[0])
+        if force: shutil.rmtree( out_dir, ignore_errors=True )
+        os.makedirs( out_dir, exist_ok=True )
+
+        # ---------------------------------------------------------------------------------------------------------------------------------------
+        # parse elements
         # ---------------------------------------------------------------------------------------------------------------------------------------
 
         itmz = []
 
         for element in elements.iter('topic'):
-
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-            # set mind specific
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-            element.attrib['source'] = 'itmz'
-            element.attrib['object'] = 'topic'
-            element.attrib['file'] = itmz_file
-
-            element.attrib['author'] = elements.attrib['author']
-            
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-            # set hierarchy
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-            def get_parents( uuid ):
-                parents = elements.findall(f'.//topic[@uuid="{uuid}"]...')
-                if (len(parents) > 0) and (parents[0].tag == 'topic'):
-                    return get_parents( parents[0].attrib['uuid'] ) + [ parents[0].attrib['uuid'] ]
-                else:
-                    return []
-
-            element.attrib['hierarchy'] = get_parents( element.attrib['uuid'] )
-
-            element.attrib['folder'] = os.path.join( output_directory, os.sep.join( element.attrib['hierarchy'] ), element.attrib['uuid'] )
-
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-            # attachment
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-            if 'att-id' in element.attrib:
-
-                element.attrib['attachment'] = {}
-            
-                if 'modified' in element.attrib: element.attrib['attachment']['date']  = element.attrib['modified']
-                elif 'created' in element.attrib: element.attrib['attachment']['date']  = element.attrib['created']
-
-                element.attrib['attachment']['name'] = element.attrib['att-name'].split('.')[0]
-
-                IMAGES_EXT = ['jpg', 'jpeg', 'gif', 'png']
-                ext = element.attrib['att-name'].split('.')[1] if (len(element.attrib['att-name'].split('.')) > 1) else''
-                if ext.lower() in IMAGES_EXT:
-                    element.attrib['attachment']['type'] = 'image'
-                else:
-                    element.attrib['attachment']['type'] = 'object'
-
-                element.attrib['attachment']['url'] = os.path.join( "assets", element.attrib['att-id'], element.attrib['att-name'] )
-
-                element.attrib['attachment']['filename'] = os.path.join( element.attrib['folder'], 
-                                                                         'images' if element.attrib['attachment']['type'] == 'image' else 'attachments',
-                                                                         element.attrib['att-name'] )
-                                                    
-                # move attachments
-
-                out_dir = os.path.dirname(element.attrib['attachment']['filename'])
-
-                if not os.path.isdir(out_dir):
-                    os.makedirs(out_dir)
-
-                try:
-                    ithoughts = zipfile.ZipFile( itmz_file, 'r')
-                    data = ithoughts.read(element.attrib['attachment']['url'])
-
-                    with open(element.attrib['attachment']['filename'], 'wb') as fs: 
-                        fs.write(data) 
-
-                    element.attrib['attachment']['processed'] = True
-                except:
-                    exc_type, exc_obj, exc_tb = sys.exc_info()
-                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                    print("Something went wrong [{} - {}]".format(exc_type, exc_obj))
-
-                if os.path.isfile(element.attrib['attachment']['filename']):
-                    print( '{}: {} bytes'.format( element.attrib['attachment']['filename'], os.path.getsize(element.attrib['attachment']['filename']) ) )
-                else:
-                    print( f'missing {element.attrib["attachment"]["filename"]} file ...')
-
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-            # link
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-            if 'link' in element.attrib:
-                element.attrib['reference'] = {}
-                element.attrib['reference']['name'] = ''
-
-                target = re.split( r":", element.attrib['link'])
-                if target[0] == 'http' or  target[0] == 'https': 
-                    element.attrib['reference']['type'] = 'url'
-                    element.attrib['reference']['title'] = element.attrib['link']
-                    element.attrib['reference']['url'] = element.attrib['link']
-
-                elif target[0] == 'ithoughts':
-                    target = re.split( r"[?=&]+", target[1])
-                    if target[0] == '//open':
-                        if 'topic' in target: 
-                            ref = target[target.index('topic') + 1]
-                            element.attrib['reference']['type'] = 'topic'
-                            element.attrib['reference']['url'] = target[target.index('topic') + 1]
-
-                        elif 'path' in target: 
-                            element.attrib['reference']['type'] = 'path'
-                            element.attrib['reference']['url'] = target[target.index('path') + 1]
-
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-            # set main.html
-            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
             if 'text' in element.attrib: 
+
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # set mind specific
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+                element.attrib['source'] = 'itmz'
+                element.attrib['object'] = 'topic'
+                element.attrib['file'] = itmz_file
+
+                element.attrib['title'] = element.attrib['uuid']
+                
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # set main.html
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
                 element.attrib['html'] = '<head></head><body>'
 
+                md = ''
+                
                 # first row is H1 / title
-                if element.attrib['text'][0] not in '[#`~]': element.attrib['html'] += '# '
-                element.attrib['html'] += element.attrib['text']
+                if element.attrib['text'][0] not in '[#`~]': md += '# '
+                md += element.attrib['text']
 
                 # convert code
-                element.attrib['html'] = re.sub( r'```', '~~~', element.attrib['html'], flags = re.MULTILINE )
-                #element.attrib['html'] = re.sub( r'~~~', '```', element.attrib['html'], flags = re.MULTILINE )
+                md = re.sub( r'```', '~~~', md, flags = re.MULTILINE )
+                #md = re.sub( r'~~~', '```', md, flags = re.MULTILINE )
 
-                # add anchors to body
-                element.attrib['html'] = re.sub( r'^(?P<line>.*)', '\g<line> {#' + element.attrib['uuid'] + '}', element.attrib['html'], count = 1 )
+                # add anchors
+                md = re.sub( r'^(?P<line>.*)', '\g<line> {#' + element.attrib['uuid'] + '}', md, count = 1 )
 
                 # convert body to html
-                element.attrib['html'] = markdown.markdown( element.attrib['html'], extensions=['extra', 'nl2br'] )
+                element.attrib['html'] += markdown.markdown( md, extensions=['extra', 'nl2br'] )
+
+                print( element.attrib['html'][:132] )
 
                 # shift headers by level in body
                 #for h in range (6, 0, -1):
                 #    element.attrib['body'] = re.sub( r'h' + str(h) + r'>', 'h{}>'.format(h+level+1), element.attrib['body'], flags = re.MULTILINE )
 
-                # add attachment to body
-                if 'attachment' in element.attrib:
-                    if element.attrib['attachment']['type'] in ['image']:
-                        tag = '\n<img src="{}" title="{}" width="1000" />'
-                        element.attrib['html'] += tag.format( element.attrib['attachment']['url'], element.attrib['attachment']['name'] )
+                # retrieve title
+                soup = BeautifulSoup( element.attrib['html'], features="html.parser" )
+                if soup.h1:
+                    element.attrib['title'] = soup.h1.text
 
-                    elif element.attrib['attachment']['type'] in ['object']:
-                        tag= '\n<object data="{}" data-attachment="{}" type="application/{}" target="_blank" width="1000"></object>'
-                        ext = os.path.basename(element.attrib['attachment']['filename']).split('.')
-                        element.attrib['html'] += tag.format( element.attrib['attachment']['url'],  
-                                                       os.path.basename(element.attrib['attachment']['filename']),
-                                                       ext[1].lower() if len(ext) > 1 else 'pdf' )
-                    if element.attrib['attachment']['filename']:
-                        element.attrib['html'] = element.attrib['html'].replace( element.attrib['attachment']['url'], 
-                                                                   element.attrib['attachment']['filename']
-                                                                 )
-                # add reference to body
-                if 'reference' in element.attrib:
-                    if element.attrib['reference']['type'] in ['url', 'topic', 'path']:
-                        tag= '\n<a href="{}" {} target="_blank" width="1000">{}</a>'
-                        element.attrib['html'] += tag.format( element.attrib['reference']['url'], 
-                                                              'class="btn btn-default fa-solid fa-link"', 
-                                                              element.attrib['reference']['name'] )
+                element.attrib['html'] += '</body>'
 
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # attachment
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-                # add task information to body
+                if 'att-id' in element.attrib:
+
+                    soup = BeautifulSoup( element.attrib['html'], features="html.parser" )
+
+                    att_split = os.path.splitext( os.path.basename( element.attrib['att-name'] ))
+
+                    element.attrib['att-asset'] = os.path.join( "assets", element.attrib['att-id'], element.attrib['att-name'] )
+
+                    if len(att_split) > 1 and att_split[1].lower() in ['.jpg', '.jpeg', '.gif', '.png']:
+                        tag = soup.new_tag('img')
+                        element.attrib['att-relative'] = os.path.join( 'images', element.attrib['att-name'] )
+                        tag.attrs['src'] = element.attrib['att-relative']
+                        tag.attrs['title'] = att_split[0]
+                    else:
+                        tag = soup.new_tag('object')
+                        element.attrib['att-relative'] = os.path.join( 'attachments', element.attrib['att-name'] )
+                        tag.attrs['data'] = element.attrib['att-relative']
+                        #tag.attrs['data'] = element.attrib['att-asset']
+                        #tag.attrs['data-attachment'] = element.attrib['att-relative']
+                        tag.attrs['type'] = "application/{}".format( att_split[1].lower()[1:] if len(att_split) > 1 else 'pdf' )
+                        #tag.attrs['target'] = "_blank"
+
+                    soup.body.append(soup.new_tag('br'))
+                    soup.body.append(tag)
+
+                    element.attrib['html'] = str(soup)
+
+                    element.attrib['html'] = element.attrib['html'].replace( element.attrib['att-asset'], element.attrib['att-relative'] )
+
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # link
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+                if 'link' in element.attrib:
+
+                    soup = BeautifulSoup( element.attrib['html'], features="html.parser" )
+
+                    tag = soup.new_tag('a')
+                    tag.attrs['target'] = "_blank"
+
+                    target = urlparse( element.attrib['link'] )
+                    # scheme://netloc/path;parameters?query#fragment
+                    if target.scheme in ['ithoughts']:
+                        # MAY NEED TO REWORK WHEN SCHEME IS ITHOUGHTS 
+                        pass
+                    
+                    tag.attrs['href'] = element.attrib['link']
+
+                    soup.body.append(soup.new_tag('br'))
+                    soup.body.append(tag)
+
+                    element.attrib['html'] = str(soup)
+
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # task information
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
                 # tabulate
                 # table by row
                 # header
+
+                soup = BeautifulSoup( element.attrib['html'], features="html.parser" )
+
                 task_table = {}
                 task = { 'task-start': 'Start', 'task-due': 'Due', 'cost': 'Cost', 'task-effort': 'Effort', 
                         'task-priority': 'Priority', 'task-progress': 'Progress', 'resources': 'Resource(s)' }
+
                 for key, value in task.items():
                     if key in element and element.attrib[key] and (element.attrib[key] == element.attrib[key]):
                         if key == 'task-progress':
@@ -519,34 +477,23 @@ def _download_itmz(output_directory, itmz_file=None):
                         task_table[value] = [ element.attrib[key] ]
 
                 if len(task_table) > 0: 
-                    element.attrib['html'] += "\n\n"
-                    element.attrib['html'] += tabulate( task_table, headers="keys", tablefmt="html" )
+                    soup.body.append(soup.new_tag('br'))
+                    soup.body.append(soup.new_tag('br'))
+                    soup.body.append( BeautifulSoup( tabulate( task_table, headers="keys", tablefmt="html" ), features="html.parser" ))
 
-                element.attrib['html'] += '</body>'
+                    print( soup.prettify() )
+                    element.attrib['html'] = str(soup)
 
-                # retrieve title
-                soup = BeautifulSoup( element.attrib['html'], features="html.parser" )
-                if soup.h1:
-                    element.attrib['title'] = soup.h1.text
-
-                # add meta tag related to mind: 
-                # <meta mind="[source, object, id, folder, createdDateTime, lastModifiedDateTime, url]" content="">
-
-                meta_list = [{ 'tag': 'source', 'content': 'itmz'}]
-                for tag in ['uuid', 'title', 'author', 'created', 'modified']:
-                    if tag in element.attrib: meta_list += [{ 'tag': tag, 'content':element.attrib[tag]}]
-                meta_list += [{ 'tag': 'folder', 'content': element.attrib['folder']}]
-
-                for meta in meta_list:
-                    metatag = soup.new_tag('meta')
-                    metatag.attrs['content'] = meta['content']
-                    metatag.attrs['mind'] = meta['tag']
-                    soup.head.append(metatag)
-
+                # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
                 # clean tags
+                # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-                blacklist=['style', 'lang', 'data-absolute-enabled', 'span', 'p',  'data-src-type', 'data-render-original-src', 'data-index', 'data-options', 'data-attachment', 'data-id', 'height', 'width']
-                whitelist=['href', 'alt']
+                soup = BeautifulSoup( element.attrib['html'], features="html.parser" )
+
+                blacklist = ['span', 'p', 'link', 'style', 'script', 'meta', 'svg', 'nav', 'header', 'footer']
+                blacklist += ['style', 'lang', 'class', 'height', 'width']
+                blacklist += ['data-absolute-enabled', 'data-src-type', 'data-render-original-src', 'data-index', 'data-options', 'data-attachment', 'data-id']
+                whitelist=['href', 'alt', 'src', 'title', 'data', 'target', 'type', 'content', 'mind']
 
                 for tag in soup.findAll(True):
                     for attr in [attr for attr in tag.attrs if( attr in blacklist and attr not in whitelist)]:
@@ -554,24 +501,129 @@ def _download_itmz(output_directory, itmz_file=None):
                     if tag.name in blacklist and tag.name not in whitelist:
                         tag.unwrap()
 
-                content = str(soup)
+                element.attrib['html'] = str(soup)
                 element.attrib['body'] = str(soup.body)
 
-                out_html = os.path.join( element.attrib['folder'], 'main.html')
-                os.makedirs( element.attrib['folder'], exist_ok=True )
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # mind meta tags
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # <meta mind="[source, object, id, folder, createdDateTime, lastModifiedDateTime, url]" content="">
 
-                with open(out_html, "w", encoding='utf-8') as f:
-                    f.write(content)
+                soup = BeautifulSoup( element.attrib['html'], features="html.parser" )
+
+                metatag = soup.new_tag('meta')
+                metatag.attrs['content'] = "text/html; charset=utf-8"
+                metatag.attrs['http-equiv'] = "Content-Type"
+                soup.head.insert( 0, metatag )
+
+                meta_list = [{ 'tag': 'source', 'content': 'itmz'}]
+                for tag in ['uuid', 'title', 'author', 'created', 'modified']:
+                    if tag in element.attrib: meta_list += [{ 'tag': tag, 'content':element.attrib[tag]}]
+                #meta_list += [{ 'tag': 'folder', 'content': element.attrib['folder']}]
+
+                for meta in meta_list:
+                    metatag = soup.new_tag('meta')
+                    metatag.attrs['content'] = meta['content']
+                    metatag.attrs['mind'] = meta['tag']
+                    soup.head.append(metatag)
+
+                element.attrib['html'] = str(soup)
+
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                # done
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+                itmz += [ element.attrib ]
+
+        # print( 'ELEMENTS: {}'.format("\n".join( [ d["folder"] for d in itmz ] )))
+
+        # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        # set hierarchy and folder
+        # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        # need to have title set first
+
+        for element in itmz:
+
+            element['folder'] = ''
+
+            def get_parents_title( uuid ):
+                parents = elements.findall(f'.//topic[@uuid="{uuid}"]...')
+                if (len(parents) > 0) and (parents[0].tag == 'topic'):
+                    return get_parents_title( parents[0].attrib['uuid'] ) + [ parents[0].attrib['title' if 'title' in parents[0].attrib else 'uuid'] ]
+                else:
+                    return []
+
+            element['hierarchy'] = get_parents_title( element['uuid'] )
+
+            element['folder'] = os.path.join( out_dir, os.sep.join( element['hierarchy'] ), element['title'] )
+
+            while os.path.exists( element['folder'] ):
+                element['hierarchy'] += [ 'sub' ] 
+                element['folder'] = os.path.join( out_dir, os.sep.join( element['hierarchy'] ), element['title'] )
+
+            # print( f'HIERARCHY\n\t{element["hierarchy"]}\n\t{element["title"]}\n\t{element["folder"]}')
 
             # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-            # done
+            # write attachment
             # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-            print( f'\nELEMENT: {element.attrib}')
+            if 'att-id' in element:
 
-            itmz += [ element.attrib ]
+                try:
+                    out_file = os.path.join(element['folder'], element['att-relative'])
 
-        print( f'Nb of ITMZ elements = {len(itmz)}' )
+                    os.makedirs( os.path.dirname(out_file), exist_ok=True )
+
+                    ithoughts = zipfile.ZipFile( itmz_file, 'r')
+                    data = ithoughts.read(element['att-asset'])
+
+                    with open(out_file, 'wb') as fs: 
+                        fs.write(data) 
+                except:
+                    exc_type, exc_obj, exc_tb = sys.exc_info()
+                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                    print("Something went wrong [{} - {}]".format(exc_type, exc_obj))
+                    print( f'ERROR\n\t{element["hierarchy"]}\n\t{element["folder"]}\n\t{element["att-relative"]}\n\t{element["att-asset"]}' )
+
+                if not os.path.isfile(out_file): print( f'missing {out_file} file ...')
+                # else: print( '{}: {} bytes'.format( out_file, os.path.getsize(out_file) ) )
+
+            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            # write html
+            # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+            if 'html' in element:
+
+                try:
+                    out_html = os.path.join( element['folder'], 'main.html')
+                    os.makedirs( element['folder'], exist_ok=True )
+
+                    with open(out_html, "w", encoding='utf-8') as f:
+                        f.write(element['html'])
+                except:
+                    exc_type, exc_obj, exc_tb = sys.exc_info()
+                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                    print("Something went wrong [{} - {}]".format(exc_type, exc_obj))
+                    print( f'ERROR\n\t{element["hierarchy"]}\n\t{element["folder"]}' )
+
+                if not os.path.isfile(out_html): print( f'missing {out_html} file ...')
+                # else: print( '{}: {} bytes'.format( out_html, os.path.getsize(out_html) ) )
+
+            # print( f'\nELEMENT: {element}')
+
+        # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        # check duplicates
+        # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+        itmz = sorted(itmz, key=lambda d: d['folder']) 
+
+        # print( 'FOLDERS: {}\n'.format("\n".join( [ d["folder"] for d in itmz ] )))
+
+        folders = []
+        for element in itmz:
+            folders += [ element['folder'] ]
+            if folders.count( element['folder'] ) > 1:
+                print( f'DUPLICATED : {element["folder"]}')
 
     except:
         exc_type, exc_obj, exc_tb = sys.exc_info()

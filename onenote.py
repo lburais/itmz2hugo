@@ -184,18 +184,6 @@ def process_url():
 
             elements = list_notes( output_directory, identifier )
 
-            # all_attr = {}
-            # for element in elements:
-            #     if 'html' in element:
-            #         print( f'..{element["file"]}' )
-            #         for tag in BeautifulSoup(element['html'], 'html.parser').find_all():
-            #             if tag.name in all_attr:
-            #                 all_attr[tag.name] += tag.attrs.keys()
-            #             else:
-            #                 all_attr[tag.name] = tag.attrs.keys()
-            #             all_attr[tag.name] = list(dict.fromkeys( all_attr[tag.name] ))
-            # print( f'TAGS and ATTRIBUTES: {all_attr}')
-
             if identifier:
                 if len(elements) == 1:
 
